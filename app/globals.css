@@ -1,0 +1,253 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+
+/* ─── Datum Labs Terminal Theme — Dark (default) ───
+ * Sourced from @datumlabs/dashboard-kit theme.
+ */
+:root {
+  --background: #0B0D0F;
+  --foreground: #E0E0E0;
+  --card-bg: #111318;
+  --card-hover: #1A1E24;
+  --card-border: rgba(255, 255, 255, 0.08);
+  --border-bright: rgba(255, 255, 255, 0.15);
+  --text-primary: #E0E0E0;
+  --text-secondary: #A0A4AB;
+  --text-tertiary: #6B7280;
+  --text-muted: #6B7280;
+  --accent: #FF6B35;
+  --accent-orange: #FF6B35;
+  --accent-secondary: #B44AFF;
+  --accent-dim: rgba(255, 107, 53, 0.12);
+  --positive: #10B981;
+  --negative: #FF4444;
+  --success: #10B981;
+  --danger: #FF4444;
+  --panel-header: #0D0F13;
+  --tooltip-bg: rgba(17, 19, 24, 0.97);
+  --tooltip-shadow: rgba(0, 0, 0, 0.6);
+  --scanline-color: rgba(0, 0, 0, 0.04);
+  --hover-overlay: rgba(255, 255, 255, 0.03);
+  /* Datum Labs chart palette */
+  --chart-1: #5B7FFF;
+  --chart-2: #10B981;
+  --chart-3: #F59E0B;
+  --chart-4: #B44AFF;
+  --chart-5: #00D4FF;
+  --chart-6: #FF6B35;
+  --chart-7: #EC4899;
+  --chart-8: #6366F1;
+  color-scheme: dark;
+}
+
+/* ─── Light theme ─── */
+[data-theme="light"] {
+  --background: #F5F7FA;
+  --foreground: #1A1E24;
+  --card-bg: #FFFFFF;
+  --card-hover: #F0F2F5;
+  --card-border: rgba(0, 0, 0, 0.08);
+  --border-bright: rgba(0, 0, 0, 0.15);
+  --text-primary: #1A1E24;
+  --text-secondary: #4B5563;
+  --text-tertiary: #6B7280;
+  --text-muted: #6B7280;
+  --accent: #E55A1F;
+  --accent-orange: #E55A1F;
+  --accent-secondary: #9333EA;
+  --accent-dim: rgba(229, 90, 31, 0.10);
+  --positive: #059669;
+  --negative: #DC2626;
+  --success: #059669;
+  --danger: #DC2626;
+  --panel-header: #FAFBFC;
+  --tooltip-bg: rgba(255, 255, 255, 0.98);
+  --tooltip-shadow: rgba(0, 0, 0, 0.12);
+  --scanline-color: rgba(0, 0, 0, 0.012);
+  --hover-overlay: rgba(0, 0, 0, 0.03);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 13px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ─── TUI scanline overlay ─── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    var(--scanline-color) 2px,
+    var(--scanline-color) 4px
+  );
+}
+
+/* ─── Custom scrollbar ─── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--background); }
+::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-bright); }
+
+/* ─── Recharts tooltip ─── */
+.recharts-tooltip-wrapper { outline: none !important; }
+.custom-tooltip {
+  background: var(--tooltip-bg) !important;
+  border: 1px solid var(--card-border) !important;
+  border-radius: 4px !important;
+  backdrop-filter: blur(12px);
+  padding: 12px 16px !important;
+  box-shadow: 0 8px 32px var(--tooltip-shadow) !important;
+}
+
+/* ─── TUI Panel ─── */
+.tui-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.tui-panel::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-orange), transparent);
+  opacity: 0.15;
+}
+.tui-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--panel-header);
+  border-bottom: 1px solid var(--card-border);
+  min-height: 36px;
+}
+.tui-panel-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent-orange);
+}
+.tui-panel-badge {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+/* ─── Dividers ─── */
+.tui-divider { height: 1px; background: var(--card-border); margin: 0; }
+.tui-divider-labeled {
+  display: flex; align-items: center; gap: 12px; margin: 16px 0;
+}
+.tui-divider-labeled::before,
+.tui-divider-labeled::after {
+  content: ""; flex: 1; height: 1px; background: var(--card-border);
+}
+.tui-divider-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-muted);
+}
+
+/* ─── Counters ─── */
+.counter-value {
+  font-size: 1.75rem; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums;
+}
+.counter-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 4px;
+}
+
+/* ─── Data tables ─── */
+.data-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+.data-table thead th {
+  text-align: left; font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-muted); padding: 8px 12px;
+  border-bottom: 1px solid var(--border-bright); font-weight: 600; white-space: nowrap;
+}
+.data-table thead th.text-right { text-align: right; }
+.data-table tbody td { padding: 8px 12px; border-bottom: 1px solid var(--card-border); white-space: nowrap; }
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table tbody tr:hover { background: var(--hover-overlay); }
+
+/* ─── Time range buttons ─── */
+.time-btn {
+  padding: 3px 10px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  border: 1px solid var(--card-border); border-radius: 3px; background: transparent;
+  color: var(--text-muted); cursor: pointer; transition: all 0.15s ease;
+}
+.time-btn:hover { border-color: var(--border-bright); color: var(--text-primary); }
+.time-btn.active { border-color: var(--accent-orange); color: var(--accent-orange); background: rgba(255, 107, 53, 0.08); }
+
+/* ─── Active nav indicator (terminal style) ─── */
+.nav-active {
+  color: var(--accent-orange) !important;
+  background: rgba(255, 107, 53, 0.08);
+  border-bottom: 1px solid var(--accent-orange);
+}
+
+/* ─── Terminal blinking dot ─── */
+@keyframes terminalBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.terminal-blink { animation: terminalBlink 1.5s ease-in-out infinite; }
+
+/* ─── Blinking cursor ─── */
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.cursor-blink::after {
+  content: "_"; animation: blink 1s step-end infinite; color: var(--accent-orange);
+}
+
+/* ─── Shimmer skeleton ─── */
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+.skeleton {
+  background: linear-gradient(90deg, var(--card-bg) 25%, var(--card-hover) 50%, var(--card-bg) 75%);
+  background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 2px;
+}
+
+/* ─── Card hover ─── */
+.tui-card { transition: border-color 0.2s ease, box-shadow 0.2s ease; }
+.tui-card:hover {
+  border-color: rgba(255, 107, 53, 0.15);
+  box-shadow: 0 0 20px rgba(255, 107, 53, 0.03);
+}
+
+/* ─── Chain / protocol badge ─── */
+.chain-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+  border: 1px solid var(--border-bright); border-radius: 3px;
+  cursor: pointer; transition: all 0.15s ease; color: var(--text-muted); background: var(--card-bg);
+}
+.chain-badge:hover { border-color: var(--accent-orange); color: var(--text-primary); }
+.chain-badge.active { border-color: var(--accent-orange); color: var(--accent-orange); background: rgba(255,107,53,0.08); }
+
+/* ─── Risk badges ─── */
+.risk-safe { color: #10B981; }
+.risk-moderate { color: #F59E0B; }
+.risk-high { color: #FF4444; }
+
+/* ─── Prevent FOUC ─── */
+html:not([data-theme]) body { visibility: hidden; }

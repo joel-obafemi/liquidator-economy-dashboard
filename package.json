@@ -1,0 +1,34 @@
+{
+  "name": "liquidator-economy",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "seed": "npx tsx -r tsconfig-paths/register scripts/seed-db.ts",
+    "backfill": "npx tsx -r tsconfig-paths/register scripts/backfill.ts",
+    "scan": "npx tsx -r tsconfig-paths/register scripts/run-scan.ts"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "lucide-react": "^0.460.0",
+    "next": "^14.2.35",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "recharts": "^2.12.0",
+    "viem": "^2.47.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "tsconfig-paths": "^4.2.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0"
+  }
+}
