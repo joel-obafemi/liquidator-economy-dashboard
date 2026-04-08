@@ -70,7 +70,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             >
               <div className="flex items-center gap-1.5">
                 <span style={{ color: "var(--accent-orange)" }}>&gt;</span>
-                <span>datumlabs.xyz/liquidator-economy</span>
+                <span>datumlab.xyz/liquidator-economy</span>
               </div>
               <span>Powered by Datum Labs</span>
             </div>
