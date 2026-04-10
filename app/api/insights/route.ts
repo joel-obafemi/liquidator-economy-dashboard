@@ -312,12 +312,14 @@ export async function GET(request: Request) {
     `)
 
     // 10. Monthly Profit (global bar chart of profit by month per protocol)
+    // Floor negative per-event gross_profit to 0 so oracle-lag edge cases
+    // don't distort the monthly aggregate (collateral < debt in USD terms).
     const monthlyProfit = await rawSql(`
       SELECT
         TO_CHAR(TO_TIMESTAMP(block_timestamp), 'YYYY-MM') as month,
         protocol,
-        COALESCE(SUM(gross_profit_usd), 0) as gross_profit,
-        COALESCE(SUM(net_profit_usd) FILTER (WHERE gas_used IS NOT NULL), 0) as net_profit,
+        COALESCE(SUM(GREATEST(gross_profit_usd, 0)), 0) as gross_profit,
+        COALESCE(SUM(GREATEST(net_profit_usd, 0)) FILTER (WHERE gas_used IS NOT NULL), 0) as net_profit,
         COUNT(*)::int as event_count
       FROM liquidation_events
       WHERE 1=1 ${protocolFilter}
