@@ -2,7 +2,7 @@ import Link from "next/link"
 
 export const metadata = {
   title: "Methodology | Liquidator Economy",
-  description: "How we collect, calculate, and present liquidation data from Aave V3 and SparkLend.",
+  description: "How we collect, calculate, and present liquidation data from Aave V3, SparkLend, Morpho Blue, and Fluid.",
 }
 
 export default function MethodologyPage() {
@@ -317,9 +317,158 @@ Cascade events      : SUM of events that occurred in cascade blocks`}
         </div>
       </section>
 
-      {/* Section 6: Limitations */}
+      {/* Section 6: Rekt Map & ETH Price Data */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-accent">6. Known Limitations</h2>
+        <h2 className="text-sm font-semibold text-accent">6. Rekt Map &amp; ETH Price Overlay</h2>
+        <div className="tui-card bg-card-bg border border-card-border rounded p-4 text-[12px] text-text-secondary leading-relaxed space-y-3">
+          <p>
+            The Rekt Map correlates daily liquidation volume with ETH price to
+            reveal how market crashes drive liquidation cascades. It identifies the
+            10 worst liquidation days (&quot;Rekt Days&quot;) by total collateral seized.
+          </p>
+          <div>
+            <p className="text-text-primary font-medium mb-1">Daily aggregation</p>
+            <pre className="bg-[var(--background)] border border-card-border rounded p-3 overflow-x-auto text-[10px] font-mono text-text-primary">
+{`-- Each day: event count, total volume, profit, biggest single liq,
+-- unique liquidators, unique borrowers, top protocol by volume
+GROUP BY DATE(TO_TIMESTAMP(block_timestamp))`}
+            </pre>
+          </div>
+          <div>
+            <p className="text-text-primary font-medium mb-1">ETH price source</p>
+            <p>
+              ETH prices come from our{" "}
+              <code className="text-accent font-mono">price_cache</code> table,
+              which stores hourly WETH prices fetched from DeFiLlama&apos;s historical
+              prices API. We average these hourly prices per day and LEFT JOIN them
+              onto the daily liquidation data. Days with no cached price show as gaps
+              in the ETH price line.
+            </p>
+          </div>
+          <div>
+            <p className="text-text-primary font-medium mb-1">ETH day-over-day change</p>
+            <p>
+              For each Rekt Day in the &quot;Hall of Rekt&quot; table, we compute the
+              ETH price change as a percentage relative to the previous day&apos;s
+              average ETH price. This is calculated server-side by iterating the
+              sorted daily array.
+            </p>
+          </div>
+          <div>
+            <p className="text-text-primary font-medium mb-1">Top 10 ranking</p>
+            <pre className="bg-[var(--background)] border border-card-border rounded p-3 overflow-x-auto text-[10px] font-mono text-text-primary">
+{`ROW_NUMBER() OVER (ORDER BY total_volume DESC) as rekt_rank
+-- Days with rekt_rank <= 10 are marked as is_top_rekt = true`}
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      {/* Section 7: Cross-Protocol Overlap */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-accent">7. Cross-Protocol Bot Overlap</h2>
+        <div className="tui-card bg-card-bg border border-card-border rounded p-4 text-[12px] text-text-secondary leading-relaxed space-y-3">
+          <p>
+            The overlap matrix on the Insights page answers: &quot;Do the same
+            liquidator addresses operate across multiple protocols?&quot; This
+            reveals shared infrastructure — bots that go where the profit is.
+          </p>
+          <div>
+            <p className="text-text-primary font-medium mb-1">Pairwise overlap detection</p>
+            <pre className="bg-[var(--background)] border border-card-border rounded p-3 overflow-x-auto text-[10px] font-mono text-text-primary">
+{`-- Self-join: find liquidators active on BOTH protocol A and B
+-- a.protocol < b.protocol prevents double-counting pairs
+FROM liquidator_proto a
+JOIN liquidator_proto b
+  ON a.liquidator = b.liquidator
+  AND a.protocol < b.protocol`}
+            </pre>
+            <p className="mt-2">
+              The diagonal of the matrix shows total unique liquidators per protocol.
+              Off-diagonal cells show the count of addresses active on <span className="text-text-primary font-medium">both</span>{" "}
+              protocols. Hover tooltips show combined volume and profit for
+              shared liquidators.
+            </p>
+          </div>
+          <div>
+            <p className="text-text-primary font-medium mb-1">Multi-protocol activity breakdown</p>
+            <p>
+              We also count how many liquidators operate on exactly 1, 2, 3, or all
+              4 protocols. This uses{" "}
+              <code className="text-accent font-mono">array_length(array_agg(DISTINCT protocol), 1)</code>{" "}
+              per liquidator address.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Section 8: Derived Metrics */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-accent">8. Derived Metrics &amp; Chart Methodology</h2>
+        <div className="tui-card bg-card-bg border border-card-border rounded p-4 text-[12px] text-text-secondary leading-relaxed space-y-3">
+          <div>
+            <p className="text-text-primary font-medium mb-1">Liquidation size distribution</p>
+            <p>
+              Individual liquidation events are bucketed by their collateral
+              seized amount (USD) into 8 ranges: $0–$100, $100–$1K, $1K–$10K,
+              $10K–$50K, $50K–$100K, $100K–$500K, $500K–$1M, and $1M+.
+            </p>
+          </div>
+          <div>
+            <p className="text-text-primary font-medium mb-1">Monthly profit (gross profit flooring)</p>
+            <p>
+              The monthly profit chart sums{" "}
+              <code className="text-accent font-mono">GREATEST(gross_profit_usd, 0)</code>{" "}
+              per event. Negative gross profit values (which occur when{" "}
+              <code className="text-accent font-mono">collateral_usd &lt; debt_usd</code>{" "}
+              due to oracle timing mismatches) are floored to zero so they don&apos;t
+              distort the monthly aggregate. This is a conservative choice — the
+              alternative would be to subtract these losses, which would
+              understate liquidator earnings.
+            </p>
+          </div>
+          <div>
+            <p className="text-text-primary font-medium mb-1">Profit concentration snapshot</p>
+            <p>
+              Liquidators are ranked by total gross profit and grouped into tiers:
+              Top 5, Top 6–10, Top 11–20, Top 21–50, and Everyone Else. This shows
+              what share of total liquidation profit each tier captures.
+            </p>
+          </div>
+          <div>
+            <p className="text-text-primary font-medium mb-1">Concentration over time</p>
+            <p>
+              The Top 5 profit share is computed monthly. For each month, we rank
+              all active liquidators by gross profit and compute what percentage
+              the top 5 capture. Months with fewer than 5 active liquidators are
+              excluded. Months where total profit is zero or negative show 100%
+              concentration (trivially true).
+            </p>
+          </div>
+          <div>
+            <p className="text-text-primary font-medium mb-1">Gas strategy comparison</p>
+            <p>
+              For the top 20 liquidators by gross profit (with at least 5 gas-traced
+              events), we compute average gas price (gwei), average gas cost (USD),
+              total gas spent, and profit margin after gas. This reveals whether
+              top bots outperform by paying higher gas for faster inclusion or by
+              optimising gas efficiency.
+            </p>
+          </div>
+          <div>
+            <p className="text-text-primary font-medium mb-1">Collateral-debt pair treemap</p>
+            <p>
+              The top 30 collateral/debt pairs (by total volume, minimum 2 events)
+              are displayed as a treemap where each cell&apos;s area is proportional
+              to total liquidation volume for that pair.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Section 9: Limitations */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-accent">9. Known Limitations</h2>
         <div className="tui-card bg-card-bg border border-card-border rounded p-4 text-[12px] text-text-secondary leading-relaxed space-y-3">
           <ul className="space-y-2 ml-4 list-disc">
             <li>
@@ -382,23 +531,25 @@ Cascade events      : SUM of events that occurred in cascade blocks`}
             <li>
               <span className="text-text-primary font-medium">Ethereum mainnet only.</span>{" "}
               L2 deployments (Aave on Arbitrum, Optimism, Base, etc.) and other
-              lending protocols (Morpho, Compound, Fluid) are not yet indexed.
+              lending protocols (Compound V3, Venus, etc.) are not yet indexed.
             </li>
           </ul>
         </div>
       </section>
 
-      {/* Section 7: Tech Stack */}
+      {/* Section 10: Tech Stack */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-accent">7. Tech Stack</h2>
+        <h2 className="text-sm font-semibold text-accent">10. Tech Stack</h2>
         <div className="tui-card bg-card-bg border border-card-border rounded p-4 text-[12px] text-text-secondary leading-relaxed">
           <ul className="grid grid-cols-2 gap-y-2 gap-x-6 ml-4 list-disc">
             <li><span className="text-text-primary">RPC client:</span> Viem (with public RPC fallbacks)</li>
             <li><span className="text-text-primary">Database:</span> PostgreSQL (Neon serverless)</li>
             <li><span className="text-text-primary">Frontend:</span> Next.js 14 App Router</li>
-            <li><span className="text-text-primary">Charts:</span> Recharts</li>
+            <li><span className="text-text-primary">Charts:</span> Recharts (SVG-based)</li>
             <li><span className="text-text-primary">Styling:</span> Tailwind CSS</li>
             <li><span className="text-text-primary">Language:</span> TypeScript</li>
+            <li><span className="text-text-primary">Screenshots:</span> html-to-image (SVG-native, 2x retina)</li>
+            <li><span className="text-text-primary">Hosting:</span> Vercel</li>
           </ul>
         </div>
       </section>
