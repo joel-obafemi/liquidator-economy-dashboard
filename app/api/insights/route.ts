@@ -279,6 +279,116 @@ export async function GET(request: Request) {
       LIMIT 30
     `)
 
+    // 9. Liquidation Size Distribution (histogram of individual liquidation sizes)
+    const sizeDistribution = await rawSql(`
+      SELECT
+        CASE
+          WHEN collateral_amount_usd < 100 THEN '$0-$100'
+          WHEN collateral_amount_usd < 1000 THEN '$100-$1K'
+          WHEN collateral_amount_usd < 10000 THEN '$1K-$10K'
+          WHEN collateral_amount_usd < 50000 THEN '$10K-$50K'
+          WHEN collateral_amount_usd < 100000 THEN '$50K-$100K'
+          WHEN collateral_amount_usd < 500000 THEN '$100K-$500K'
+          WHEN collateral_amount_usd < 1000000 THEN '$500K-$1M'
+          ELSE '$1M+'
+        END as bucket,
+        CASE
+          WHEN collateral_amount_usd < 100 THEN 1
+          WHEN collateral_amount_usd < 1000 THEN 2
+          WHEN collateral_amount_usd < 10000 THEN 3
+          WHEN collateral_amount_usd < 50000 THEN 4
+          WHEN collateral_amount_usd < 100000 THEN 5
+          WHEN collateral_amount_usd < 500000 THEN 6
+          WHEN collateral_amount_usd < 1000000 THEN 7
+          ELSE 8
+        END as sort_order,
+        COUNT(*)::int as count,
+        COALESCE(SUM(collateral_amount_usd), 0) as total_volume,
+        COALESCE(AVG(collateral_amount_usd), 0) as avg_size
+      FROM liquidation_events
+      WHERE collateral_amount_usd > 0 ${protocolFilter}
+      GROUP BY bucket, sort_order
+      ORDER BY sort_order ASC
+    `)
+
+    // 10. Monthly Profit (global bar chart of profit by month per protocol)
+    const monthlyProfit = await rawSql(`
+      SELECT
+        TO_CHAR(TO_TIMESTAMP(block_timestamp), 'YYYY-MM') as month,
+        protocol,
+        COALESCE(SUM(gross_profit_usd), 0) as gross_profit,
+        COALESCE(SUM(net_profit_usd) FILTER (WHERE gas_used IS NOT NULL), 0) as net_profit,
+        COUNT(*)::int as event_count
+      FROM liquidation_events
+      WHERE 1=1 ${protocolFilter}
+      GROUP BY month, protocol
+      ORDER BY month ASC
+    `)
+
+    // 11. Gas Prices by Top Liquidator (gas strategy comparison)
+    const gasByLiquidator = await rawSql(`
+      SELECT
+        liquidator,
+        COUNT(*)::int as event_count,
+        COALESCE(AVG(gas_price_gwei) FILTER (WHERE gas_used IS NOT NULL), 0) as avg_gas_gwei,
+        COALESCE(AVG(gas_cost_usd) FILTER (WHERE gas_used IS NOT NULL), 0) as avg_gas_usd,
+        COALESCE(AVG(gas_used) FILTER (WHERE gas_used IS NOT NULL), 0) as avg_gas_used,
+        COALESCE(SUM(gas_cost_usd) FILTER (WHERE gas_used IS NOT NULL), 0) as total_gas_usd,
+        COALESCE(SUM(gross_profit_usd), 0) as total_gross_profit,
+        COALESCE(SUM(net_profit_usd) FILTER (WHERE gas_used IS NOT NULL), 0) as total_net_profit,
+        COUNT(*) FILTER (WHERE gas_used IS NOT NULL)::int as events_with_gas
+      FROM liquidation_events
+      WHERE 1=1 ${protocolFilter}
+      GROUP BY liquidator
+      HAVING COUNT(*) FILTER (WHERE gas_used IS NOT NULL) >= 5
+      ORDER BY total_gross_profit DESC
+      LIMIT 20
+    `)
+
+    // 12. Profit Concentration Snapshot (current pie/bar breakdown)
+    const profitConcentration = await rawSql(`
+      WITH liquidator_profits AS (
+        SELECT
+          liquidator,
+          COALESCE(SUM(gross_profit_usd), 0) as total_profit,
+          COUNT(*)::int as event_count,
+          ROW_NUMBER() OVER (ORDER BY SUM(gross_profit_usd) DESC) as rank
+        FROM liquidation_events
+        WHERE 1=1 ${protocolFilter}
+        GROUP BY liquidator
+      ),
+      tiers AS (
+        SELECT
+          CASE
+            WHEN rank <= 5 THEN 'Top 5'
+            WHEN rank <= 10 THEN 'Top 6-10'
+            WHEN rank <= 20 THEN 'Top 11-20'
+            WHEN rank <= 50 THEN 'Top 21-50'
+            ELSE 'Everyone Else'
+          END as tier,
+          CASE
+            WHEN rank <= 5 THEN 1
+            WHEN rank <= 10 THEN 2
+            WHEN rank <= 20 THEN 3
+            WHEN rank <= 50 THEN 4
+            ELSE 5
+          END as sort_order,
+          total_profit,
+          event_count,
+          liquidator
+        FROM liquidator_profits
+      )
+      SELECT
+        tier,
+        sort_order,
+        COUNT(*)::int as liquidator_count,
+        COALESCE(SUM(total_profit), 0) as tier_profit,
+        COALESCE(SUM(event_count), 0)::int as tier_events
+      FROM tiers
+      GROUP BY tier, sort_order
+      ORDER BY sort_order ASC
+    `)
+
     // 8. Liquidation bonus efficiency by asset
     const bonusEfficiency = await rawSql(`
       SELECT
@@ -371,6 +481,38 @@ export async function GET(request: Request) {
       },
       overlapMatrix,
       protocolStats,
+      sizeDistribution: sizeDistribution.map((r: any) => ({
+        bucket: r.bucket,
+        sortOrder: Number(r.sort_order),
+        count: Number(r.count),
+        totalVolume: Number(r.total_volume),
+        avgSize: Number(r.avg_size),
+      })),
+      monthlyProfit: monthlyProfit.map((r: any) => ({
+        month: r.month,
+        protocol: r.protocol,
+        grossProfit: Number(r.gross_profit),
+        netProfit: Number(r.net_profit),
+        eventCount: Number(r.event_count),
+      })),
+      gasByLiquidator: gasByLiquidator.map((r: any) => ({
+        liquidator: r.liquidator,
+        eventCount: Number(r.event_count),
+        avgGasGwei: Number(r.avg_gas_gwei),
+        avgGasUsd: Number(r.avg_gas_usd),
+        avgGasUsed: Number(r.avg_gas_used),
+        totalGasUsd: Number(r.total_gas_usd),
+        totalGrossProfit: Number(r.total_gross_profit),
+        totalNetProfit: Number(r.total_net_profit),
+        eventsWithGas: Number(r.events_with_gas),
+      })),
+      profitConcentration: profitConcentration.map((r: any) => ({
+        tier: r.tier,
+        sortOrder: Number(r.sort_order),
+        liquidatorCount: Number(r.liquidator_count),
+        tierProfit: Number(r.tier_profit),
+        tierEvents: Number(r.tier_events),
+      })),
       collateralDebtPairs: collateralDebtPairs.map((r: any) => ({
         collateral: r.collateral_symbol,
         debt: r.debt_symbol,

@@ -13,6 +13,7 @@ import Link from "next/link"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, LineChart, Line, Cell, Treemap,
+  PieChart, Pie,
 } from "recharts"
 
 interface InsightsData {
@@ -103,6 +104,38 @@ interface InsightsData {
     uniqueLiquidators: number
     avgBonusPct: number
   }>
+  sizeDistribution: Array<{
+    bucket: string
+    sortOrder: number
+    count: number
+    totalVolume: number
+    avgSize: number
+  }>
+  monthlyProfit: Array<{
+    month: string
+    protocol: string
+    grossProfit: number
+    netProfit: number
+    eventCount: number
+  }>
+  gasByLiquidator: Array<{
+    liquidator: string
+    eventCount: number
+    avgGasGwei: number
+    avgGasUsd: number
+    avgGasUsed: number
+    totalGasUsd: number
+    totalGrossProfit: number
+    totalNetProfit: number
+    eventsWithGas: number
+  }>
+  profitConcentration: Array<{
+    tier: string
+    sortOrder: number
+    liquidatorCount: number
+    tierProfit: number
+    tierEvents: number
+  }>
 }
 
 const BUCKET_LABELS: Record<string, string> = {
@@ -191,6 +224,31 @@ export default function InsightsPage() {
       label: BUCKET_LABELS[d.bucket] || d.bucket,
       fill: d.bucket.startsWith("loss") ? CHART_COLORS.negative : CHART_COLORS.positive,
     }))
+
+  // Merge monthly profit data into chart-ready format (stacked by protocol)
+  const monthlyProfitMap = new Map<string, any>()
+  for (const m of data?.monthlyProfit || []) {
+    if (!monthlyProfitMap.has(m.month)) {
+      monthlyProfitMap.set(m.month, { month: m.month, aave_v3: 0, spark: 0, morpho_blue: 0, fluid: 0, total: 0 })
+    }
+    const entry = monthlyProfitMap.get(m.month)!
+    entry[m.protocol] = m.grossProfit
+    entry.total += m.grossProfit
+  }
+  const monthlyProfitChart = [...monthlyProfitMap.values()].sort((a, b) => a.month.localeCompare(b.month))
+
+  // Profit concentration data for pie chart
+  const concentrationPie = (data?.profitConcentration || []).map((t) => {
+    const TIER_COLORS: Record<string, string> = {
+      "Top 5": "#FF6B35",
+      "Top 6-10": "#FF9F1C",
+      "Top 11-20": "#FFD166",
+      "Top 21-50": "#06D6A0",
+      "Everyone Else": "#118AB2",
+    }
+    return { ...t, fill: TIER_COLORS[t.tier] || CHART_COLORS.accent }
+  })
+  const totalConcentrationProfit = concentrationPie.reduce((s, t) => s + t.tierProfit, 0)
 
   const repeatStats = data?.repeatBorrowers?.stats
   const repeatPct = repeatStats && repeatStats.totalBorrowers > 0
@@ -451,6 +509,89 @@ export default function InsightsPage() {
             every protocol. The vast majority specialise in a single lending market.
           </p>
         </div>
+      </div>
+
+      {/* === Liquidation Size Distribution + Monthly Profit === */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Chart 3: Liquidation Size Distribution */}
+        <ChartWrapper title="Liquidation Size Distribution" subtitle="How big are typical liquidations?">
+          <div className="h-[280px]">
+            {(data?.sizeDistribution || []).length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data!.sizeDistribution}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" />
+                  <XAxis dataKey="bucket" tick={{ fontSize: 9, fill: "var(--text-tertiary)" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "var(--text-tertiary)" }} />
+                  <Tooltip
+                    cursor={{ fill: "var(--hover-overlay)" }}
+                    contentStyle={{
+                      background: "var(--tooltip-bg)",
+                      border: "1px solid var(--card-border)",
+                      borderRadius: 4,
+                      fontSize: 11,
+                      color: "var(--text-primary)",
+                    }}
+                    labelStyle={{ color: "var(--text-primary)" }}
+                    itemStyle={{ color: "var(--text-primary)" }}
+                    formatter={(v: number, name: string) => {
+                      if (name === "count") return [formatNumber(v), "Liquidations"]
+                      return [v, name]
+                    }}
+                  />
+                  <Bar dataKey="count" name="count" fill={CHART_COLORS.accent} radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-text-tertiary text-xs">No data</div>
+            )}
+          </div>
+        </ChartWrapper>
+
+        {/* Chart 5: Monthly Profit */}
+        <ChartWrapper title="Monthly Liquidator Profit" subtitle="When is the most money made?">
+          <div className="h-[280px]">
+            {monthlyProfitChart.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthlyProfitChart}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 9, fill: "var(--text-tertiary)" }}
+                    tickFormatter={(v) => v.slice(2)}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
+                    tickFormatter={(v) => `$${(v / 1e6).toFixed(1)}M`}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--tooltip-bg)",
+                      border: "1px solid var(--card-border)",
+                      borderRadius: 4,
+                      fontSize: 11,
+                      color: "var(--text-primary)",
+                    }}
+                    labelStyle={{ color: "var(--text-primary)" }}
+                    itemStyle={{ color: "var(--text-primary)" }}
+                    formatter={(v: number, name: string) => {
+                      const labels: Record<string, string> = {
+                        aave_v3: "Aave V3", spark: "SparkLend",
+                        morpho_blue: "Morpho Blue", fluid: "Fluid",
+                      }
+                      return [formatUSD(v), labels[name] || name]
+                    }}
+                  />
+                  <Bar dataKey="aave_v3" name="aave_v3" stackId="a" fill={CHART_COLORS.aave_v3} />
+                  <Bar dataKey="spark" name="spark" stackId="a" fill={CHART_COLORS.spark} />
+                  <Bar dataKey="morpho_blue" name="morpho_blue" stackId="a" fill={CHART_COLORS.morpho_blue} />
+                  <Bar dataKey="fluid" name="fluid" stackId="a" fill={CHART_COLORS.fluid} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-text-tertiary text-xs">No data</div>
+            )}
+          </div>
+        </ChartWrapper>
       </div>
 
       {/* === Cross-Protocol Bot Overlap Matrix === */}
@@ -1020,6 +1161,172 @@ export default function InsightsPage() {
               )}
           </ChartWrapper>
         </div>
+      </div>
+
+      {/* === Gas Strategy + Profit Concentration === */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Chart 10: Gas Prices by Liquidator */}
+        <ChartWrapper title="Gas Strategy by Top Liquidators" subtitle="How do bots compete on execution?">
+          <div className="h-[320px]">
+            {(data?.gasByLiquidator || []).length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={(data?.gasByLiquidator || []).slice(0, 15).map((g) => ({
+                    ...g,
+                    label: `${g.liquidator.slice(0, 6)}...${g.liquidator.slice(-4)}`,
+                    marginPct: g.totalGrossProfit > 0
+                      ? ((g.totalGrossProfit - g.totalGasUsd) / g.totalGrossProfit * 100)
+                      : 0,
+                  }))}
+                  layout="vertical"
+                  margin={{ left: 10, right: 10 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 9, fill: "var(--text-tertiary)" }}
+                    tickFormatter={(v) => `${v.toFixed(0)} gwei`}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    tick={{ fontSize: 9, fill: "var(--text-tertiary)" }}
+                    width={85}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--tooltip-bg)",
+                      border: "1px solid var(--card-border)",
+                      borderRadius: 4,
+                      fontSize: 11,
+                      color: "var(--text-primary)",
+                    }}
+                    labelStyle={{ color: "var(--text-primary)" }}
+                    itemStyle={{ color: "var(--text-primary)" }}
+                    formatter={(v: number, name: string, props: any) => {
+                      const d = props.payload
+                      if (name === "avgGasGwei") return [`${v.toFixed(1)} gwei`, "Avg Gas Price"]
+                      return [v, name]
+                    }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.[0]) return null
+                      const d = payload[0].payload
+                      return (
+                        <div
+                          className="rounded p-2.5 text-[10px] space-y-1"
+                          style={{
+                            background: "var(--tooltip-bg)",
+                            border: "1px solid var(--card-border)",
+                            color: "var(--text-primary)",
+                            minWidth: 180,
+                          }}
+                        >
+                          <div className="font-semibold text-[11px]" style={{ color: "var(--accent)" }}>
+                            {d.label}
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-text-tertiary">Avg Gas Price</span>
+                            <span>{d.avgGasGwei.toFixed(1)} gwei</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-text-tertiary">Avg Gas Cost</span>
+                            <span>{formatUSD(d.avgGasUsd)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-text-tertiary">Total Gas Spent</span>
+                            <span className="text-negative">{formatUSD(d.totalGasUsd)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-text-tertiary">Gross Profit</span>
+                            <span className="text-positive">{formatUSD(d.totalGrossProfit)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-text-tertiary">Profit Margin</span>
+                            <span className={d.marginPct >= 0 ? "text-positive" : "text-negative"}>
+                              {d.marginPct.toFixed(1)}%
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-text-tertiary">Events (w/ gas)</span>
+                            <span>{d.eventsWithGas}</span>
+                          </div>
+                        </div>
+                      )
+                    }}
+                  />
+                  <Bar dataKey="avgGasGwei" name="avgGasGwei" fill={CHART_COLORS.accent} radius={[0, 3, 3, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex items-center justify-center text-text-tertiary text-xs">
+                Run gas backfill to see this chart
+              </div>
+            )}
+          </div>
+        </ChartWrapper>
+
+        {/* Chart 8: Profit Concentration Snapshot */}
+        <ChartWrapper title="Profit Concentration Snapshot" subtitle="How concentrated is the market?">
+          <div className="h-[320px]">
+            {concentrationPie.length > 0 ? (
+              <div className="flex h-full">
+                <div className="flex-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={concentrationPie}
+                        cx="50%"
+                        cy="45%"
+                        innerRadius={55}
+                        outerRadius={95}
+                        dataKey="tierProfit"
+                        nameKey="tier"
+                        stroke="var(--card-bg)"
+                        strokeWidth={2}
+                      >
+                        {concentrationPie.map((entry, i) => (
+                          <Cell key={i} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          background: "var(--tooltip-bg)",
+                          border: "1px solid var(--card-border)",
+                          borderRadius: 4,
+                          fontSize: 11,
+                          color: "var(--text-primary)",
+                        }}
+                        itemStyle={{ color: "var(--text-primary)" }}
+                        formatter={(v: number, name: string) => [formatUSD(v), name]}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="w-[180px] flex flex-col justify-center gap-2.5 pl-2">
+                  {concentrationPie.map((t) => {
+                    const pct = totalConcentrationProfit > 0
+                      ? (t.tierProfit / totalConcentrationProfit * 100)
+                      : 0
+                    return (
+                      <div key={t.tier}>
+                        <div className="flex items-center gap-2 text-[11px] mb-0.5">
+                          <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: t.fill }} />
+                          <span className="font-medium text-text-primary">{t.tier}</span>
+                        </div>
+                        <div className="ml-4.5 text-[10px] text-text-tertiary space-y-0.5" style={{ marginLeft: 18 }}>
+                          <div>{pct.toFixed(1)}% of profit ({formatUSD(t.tierProfit)})</div>
+                          <div>{t.liquidatorCount} liquidators · {formatNumber(t.tierEvents)} events</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="h-full flex items-center justify-center text-text-tertiary text-xs">No data</div>
+            )}
+          </div>
+        </ChartWrapper>
       </div>
 
       {/* === SECTION 5: Bonus Efficiency === */}
