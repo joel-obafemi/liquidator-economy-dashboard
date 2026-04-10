@@ -6,6 +6,7 @@ import { formatUSD, formatNumber, protocolLabel, CHART_COLORS } from "@/lib/util
 import { MetricCard } from "@/components/metric-card"
 import { ProtocolToggle, PeriodToggle } from "@/components/protocol-toggle"
 import { SkeletonKpiRow, SkeletonChart, SkeletonDonut, SkeletonTable } from "@/components/skeleton"
+import { ChartWrapper } from "@/components/chart-wrapper"
 import Link from "next/link"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -146,11 +147,7 @@ export default function OverviewPage() {
       ) : (
       <div className="grid grid-cols-3 gap-4">
         {/* Volume over time */}
-        <div className="col-span-2 tui-card bg-card-bg border border-card-border rounded p-4">
-          <h2 className="text-xs font-medium text-text-secondary mb-3">
-            Liquidation Volume Over Time
-          </h2>
-          <div className="h-[280px]">
+        <ChartWrapper title="Liquidation Volume Over Time" className="col-span-2" height={280}>
             {chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData}>
@@ -192,15 +189,10 @@ export default function OverviewPage() {
                 {loading ? "Loading..." : "No data yet. Run the scanner to populate."}
               </div>
             )}
-          </div>
-        </div>
+        </ChartWrapper>
 
         {/* Protocol breakdown */}
-        <div className="tui-card bg-card-bg border border-card-border rounded p-4">
-          <h2 className="text-xs font-medium text-text-secondary mb-3">
-            Protocol Breakdown
-          </h2>
-          <div className="h-[280px]">
+        <ChartWrapper title="Protocol Breakdown" height={280}>
             {pieData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -234,8 +226,7 @@ export default function OverviewPage() {
                 No data
               </div>
             )}
-          </div>
-        </div>
+        </ChartWrapper>
       </div>
       )}
 

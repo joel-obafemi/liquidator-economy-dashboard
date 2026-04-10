@@ -9,6 +9,7 @@ import {
 } from "@/lib/utils"
 import { MetricCard } from "@/components/metric-card"
 import { SkeletonBar, SkeletonKpiRow, SkeletonChart, SkeletonDonut } from "@/components/skeleton"
+import { ChartWrapper } from "@/components/chart-wrapper"
 import Link from "next/link"
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -406,11 +407,7 @@ export default function LiquidatorProfilePage() {
       )}
 
       {/* === Activity Timeline === */}
-      <div className="tui-card bg-card-bg border border-card-border rounded p-4">
-        <h2 className="text-xs font-medium text-text-secondary mb-3">
-          Activity Timeline (Liquidations Per Day)
-        </h2>
-        <div className="h-[200px]">
+      <ChartWrapper title="Activity Timeline (Liquidations Per Day)" subtitle="Hover any bar to see the day's total liquidations, gross profit, gas spent, and net profit." height={200}>
           {dailyChart.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={dailyChart}>
@@ -481,19 +478,11 @@ export default function LiquidatorProfilePage() {
           ) : (
             <div className="h-full flex items-center justify-center text-text-tertiary text-xs">No data</div>
           )}
-        </div>
-        <p className="text-[10px] text-text-tertiary mt-2">
-          Hover any bar to see the day&apos;s total liquidations, gross profit, gas spent, and net profit.
-        </p>
-      </div>
+      </ChartWrapper>
 
       {/* === Profit Over Time === */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2 tui-card bg-card-bg border border-card-border rounded p-4">
-          <h2 className="text-xs font-medium text-text-secondary mb-3">
-            Cumulative Profit Over Time (Gross vs Net)
-          </h2>
-          <div className="h-[260px]">
+        <ChartWrapper title="Cumulative Profit Over Time (Gross vs Net)" className="col-span-2" height={260}>
             {cumulativeChart.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={cumulativeChart}>
@@ -553,15 +542,10 @@ export default function LiquidatorProfilePage() {
             ) : (
               <div className="h-full flex items-center justify-center text-text-tertiary text-xs">No data</div>
             )}
-          </div>
-        </div>
+        </ChartWrapper>
 
         {/* Profitability donut */}
-        <div className="tui-card bg-card-bg border border-card-border rounded p-4">
-          <h2 className="text-xs font-medium text-text-secondary mb-3">
-            Win/Loss Rate
-          </h2>
-          <div className="h-[260px]">
+        <ChartWrapper title="Win/Loss Rate" height={260}>
             {profitabilityData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -594,16 +578,12 @@ export default function LiquidatorProfilePage() {
             ) : (
               <div className="h-full flex items-center justify-center text-text-tertiary text-xs">No gas data</div>
             )}
-          </div>
-        </div>
+        </ChartWrapper>
       </div>
 
       {/* === Preferred Assets === */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="tui-card bg-card-bg border border-card-border rounded p-4">
-          <h2 className="text-xs font-medium text-text-secondary mb-3">
-            Top Collateral Assets Targeted
-          </h2>
+        <ChartWrapper title="Top Collateral Assets Targeted">
           <div className="flex gap-4 h-[260px]">
             <div className="flex-1">
               {collateralChart.length > 0 ? (
@@ -658,12 +638,9 @@ export default function LiquidatorProfilePage() {
               })}
             </div>
           </div>
-        </div>
+        </ChartWrapper>
 
-        <div className="tui-card bg-card-bg border border-card-border rounded p-4">
-          <h2 className="text-xs font-medium text-text-secondary mb-3">
-            Top Debt Assets Repaid
-          </h2>
+        <ChartWrapper title="Top Debt Assets Repaid">
           <div className="flex gap-4 h-[260px]">
             <div className="flex-1">
               {debtChart.length > 0 ? (
@@ -718,7 +695,7 @@ export default function LiquidatorProfilePage() {
               })}
             </div>
           </div>
-        </div>
+        </ChartWrapper>
       </div>
 
       {/* === Recent Liquidations Table with Full Details === */}

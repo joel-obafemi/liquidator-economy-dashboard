@@ -6,6 +6,7 @@ import { formatUSD, formatNumber, formatDate, protocolLabel, CHART_COLORS } from
 import { MetricCard } from "@/components/metric-card"
 import { ProtocolToggle, PeriodToggle } from "@/components/protocol-toggle"
 import { SkeletonKpiRow, SkeletonChart, SkeletonTable } from "@/components/skeleton"
+import { ChartWrapper } from "@/components/chart-wrapper"
 import Link from "next/link"
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
@@ -186,11 +187,10 @@ export default function RektMapPage() {
       {loading && !data ? (
         <SkeletonChart height={400} />
       ) : (
-        <div className="tui-card bg-card-bg border border-card-border rounded p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs font-medium text-text-secondary">
-              Liquidation Volume vs ETH Price
-            </h2>
+        <ChartWrapper
+          title="Liquidation Volume vs ETH Price"
+          height={400}
+          headerExtra={
             <div className="flex items-center gap-4 text-[10px] text-text-tertiary">
               <span className="flex items-center gap-1.5">
                 <span className="inline-block w-3 h-2 rounded-sm" style={{ background: REKT_COLORS.barDefault }} />
@@ -205,8 +205,8 @@ export default function RektMapPage() {
                 Top 10 Rekt Days
               </span>
             </div>
-          </div>
-          <div className="h-[400px]">
+          }
+        >
             {chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData} margin={{ top: 24, right: 12, bottom: 0, left: 0 }}>
@@ -276,8 +276,7 @@ export default function RektMapPage() {
                 No data available for the selected filters.
               </div>
             )}
-          </div>
-        </div>
+        </ChartWrapper>
       )}
 
       {/* KPI Cards */}

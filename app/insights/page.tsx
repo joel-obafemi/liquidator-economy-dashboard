@@ -8,6 +8,7 @@ import {
 import { MetricCard } from "@/components/metric-card"
 import { ProtocolToggle } from "@/components/protocol-toggle"
 import { SkeletonBar, SkeletonKpiRow, SkeletonChart } from "@/components/skeleton"
+import { ChartWrapper } from "@/components/chart-wrapper"
 import Link from "next/link"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -354,11 +355,7 @@ export default function InsightsPage() {
 
       {/* Profit Distribution Histogram + Cross-Protocol Activity side-by-side */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="tui-card bg-card-bg border border-card-border rounded p-4">
-          <h2 className="text-xs font-medium text-text-secondary mb-3">
-            Net Profit Distribution Per Liquidation
-          </h2>
-          <div className="h-[250px]">
+        <ChartWrapper title="Net Profit Distribution Per Liquidation" height={250}>
             {sortedDist.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={sortedDist}>
@@ -390,8 +387,7 @@ export default function InsightsPage() {
                 {np?.withGasData === 0 ? "Run gas backfill to see this chart" : "No data"}
               </div>
             )}
-          </div>
-        </div>
+        </ChartWrapper>
 
         {/* Cross-Protocol Activity breakdown */}
         <div className="tui-card bg-card-bg border border-card-border rounded p-4">
@@ -491,7 +487,7 @@ export default function InsightsPage() {
                 )
 
                 return (
-                  <div className="overflow-x-auto">
+                  <div>
                     <table className="w-full text-[11px]">
                       <thead>
                         <tr>
@@ -549,7 +545,7 @@ export default function InsightsPage() {
                                   </div>
                                   {/* Hover tooltip */}
                                   <div
-                                    className="absolute z-20 hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 min-w-[160px]"
+                                    className="absolute z-50 hidden group-hover:block top-full left-1/2 -translate-x-1/2 mt-2 min-w-[180px]"
                                     style={{
                                       background: "var(--tooltip-bg)",
                                       border: "1px solid var(--card-border)",
@@ -559,6 +555,7 @@ export default function InsightsPage() {
                                       color: "var(--text-primary)",
                                       fontFamily: "JetBrains Mono, monospace",
                                       pointerEvents: "none",
+                                      boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
                                     }}
                                   >
                                     {isDiag ? (
@@ -682,11 +679,7 @@ export default function InsightsPage() {
         <h2 className="text-sm font-semibold text-accent mb-3">Top Collateral–Debt Pairs by Liquidation Volume</h2>
         <div className="grid grid-cols-3 gap-4">
           {/* Treemap */}
-          <div className="col-span-2 tui-card bg-card-bg border border-card-border rounded p-4">
-            <h3 className="text-xs font-medium text-text-secondary mb-3">
-              Volume Treemap — larger area = more liquidation volume
-            </h3>
-            <div className="h-[380px]">
+          <ChartWrapper title="Volume Treemap — larger area = more liquidation volume" className="col-span-2" height={380}>
               {(data?.collateralDebtPairs || []).length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <Treemap
@@ -764,8 +757,7 @@ export default function InsightsPage() {
               ) : (
                 <div className="h-full flex items-center justify-center text-text-tertiary text-xs">No data</div>
               )}
-            </div>
-          </div>
+          </ChartWrapper>
 
           {/* Top Pairs Ranked List */}
           <div className="tui-card bg-card-bg border border-card-border rounded p-4">
@@ -952,11 +944,7 @@ export default function InsightsPage() {
       <div>
         <h2 className="text-sm font-semibold text-accent mb-3">Market Concentration</h2>
         <div className="grid grid-cols-2 gap-4">
-          <div className="tui-card bg-card-bg border border-card-border rounded p-4">
-            <h3 className="text-xs font-medium text-text-secondary mb-3">
-              Top 5 Liquidators Profit Share Over Time
-            </h3>
-            <div className="h-[240px]">
+          <ChartWrapper title="Top 5 Liquidators Profit Share Over Time" height={240}>
               {(data?.concentration || []).length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={data!.concentration}>
@@ -1000,14 +988,9 @@ export default function InsightsPage() {
               ) : (
                 <div className="h-full flex items-center justify-center text-text-tertiary text-xs">No data</div>
               )}
-            </div>
-          </div>
+          </ChartWrapper>
 
-          <div className="tui-card bg-card-bg border border-card-border rounded p-4">
-            <h3 className="text-xs font-medium text-text-secondary mb-3">
-              Active Liquidators Per Month
-            </h3>
-            <div className="h-[240px]">
+          <ChartWrapper title="Active Liquidators Per Month" height={240}>
               {(data?.concentration || []).length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={data!.concentration}>
@@ -1035,8 +1018,7 @@ export default function InsightsPage() {
               ) : (
                 <div className="h-full flex items-center justify-center text-text-tertiary text-xs">No data</div>
               )}
-            </div>
-          </div>
+          </ChartWrapper>
         </div>
       </div>
 
