@@ -192,7 +192,70 @@ export async function GET(request: Request) {
       crossProtocolTotalDistinct = crossProtocol.reduce((s, r) => s + r.count, 0)
     }
 
-    // 7. Top collateral-debt pairs by volume (for treemap)
+    // 7. Cross-protocol pairwise overlap matrix
+    // For each pair of protocols, count shared liquidators and their combined volume
+    let overlapMatrix: Array<{
+      protocolA: string; protocolB: string;
+      sharedLiquidators: number; sharedVolume: number; sharedProfit: number;
+    }> = []
+    let protocolStats: Array<{
+      protocol: string; uniqueLiquidators: number; totalVolume: number; totalProfit: number;
+    }> = []
+    if (!protocol || protocol === "all") {
+      // Per-protocol stats (diagonal of the matrix)
+      const pStats = await rawSql(`
+        SELECT
+          protocol,
+          COUNT(DISTINCT liquidator)::int as unique_liquidators,
+          COALESCE(SUM(collateral_amount_usd), 0) as total_volume,
+          COALESCE(SUM(gross_profit_usd), 0) as total_profit
+        FROM liquidation_events
+        GROUP BY protocol
+        ORDER BY protocol
+      `)
+      protocolStats = pStats.map((r: any) => ({
+        protocol: r.protocol,
+        uniqueLiquidators: Number(r.unique_liquidators),
+        totalVolume: Number(r.total_volume),
+        totalProfit: Number(r.total_profit),
+      }))
+
+      // Pairwise overlap: liquidators active on BOTH protocol A and B
+      const overlap = await rawSql(`
+        WITH liquidator_proto AS (
+          SELECT DISTINCT liquidator, protocol
+          FROM liquidation_events
+        ),
+        liquidator_volume AS (
+          SELECT liquidator, protocol,
+                 COALESCE(SUM(collateral_amount_usd), 0) as volume,
+                 COALESCE(SUM(gross_profit_usd), 0) as profit
+          FROM liquidation_events
+          GROUP BY liquidator, protocol
+        )
+        SELECT
+          a.protocol as protocol_a,
+          b.protocol as protocol_b,
+          COUNT(DISTINCT a.liquidator)::int as shared_liquidators,
+          COALESCE(SUM(va.volume + vb.volume), 0) as shared_volume,
+          COALESCE(SUM(va.profit + vb.profit), 0) as shared_profit
+        FROM liquidator_proto a
+        JOIN liquidator_proto b ON a.liquidator = b.liquidator AND a.protocol < b.protocol
+        LEFT JOIN liquidator_volume va ON va.liquidator = a.liquidator AND va.protocol = a.protocol
+        LEFT JOIN liquidator_volume vb ON vb.liquidator = a.liquidator AND vb.protocol = b.protocol
+        GROUP BY a.protocol, b.protocol
+        ORDER BY shared_liquidators DESC
+      `)
+      overlapMatrix = overlap.map((r: any) => ({
+        protocolA: r.protocol_a,
+        protocolB: r.protocol_b,
+        sharedLiquidators: Number(r.shared_liquidators),
+        sharedVolume: Number(r.shared_volume),
+        sharedProfit: Number(r.shared_profit),
+      }))
+    }
+
+    // 8. Top collateral-debt pairs by volume (for treemap)
     const collateralDebtPairs = await rawSql(`
       SELECT
         collateral_symbol,
@@ -306,6 +369,8 @@ export async function GET(request: Request) {
         breakdown: crossProtocol,
         totalDistinct: crossProtocolTotalDistinct,
       },
+      overlapMatrix,
+      protocolStats,
       collateralDebtPairs: collateralDebtPairs.map((r: any) => ({
         collateral: r.collateral_symbol,
         debt: r.debt_symbol,

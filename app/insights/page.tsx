@@ -79,6 +79,19 @@ interface InsightsData {
     breakdown: Array<{ numProtocols: number; count: number; totalProfit: number }>
     totalDistinct: number
   }
+  overlapMatrix: Array<{
+    protocolA: string
+    protocolB: string
+    sharedLiquidators: number
+    sharedVolume: number
+    sharedProfit: number
+  }>
+  protocolStats: Array<{
+    protocol: string
+    uniqueLiquidators: number
+    totalVolume: number
+    totalProfit: number
+  }>
   collateralDebtPairs: Array<{
     collateral: string
     debt: string
@@ -443,6 +456,226 @@ export default function InsightsPage() {
           </p>
         </div>
       </div>
+
+      {/* === Cross-Protocol Bot Overlap Matrix === */}
+      {data?.overlapMatrix && data.overlapMatrix.length > 0 && data?.protocolStats && (
+        <div>
+          <h2 className="text-sm font-semibold text-accent mb-1">Cross-Protocol Bot Overlap</h2>
+          <p className="text-[11px] text-text-tertiary mb-3">
+            Do the same liquidator addresses operate across multiple protocols? This matrix reveals
+            shared infrastructure — bots go where the profit is.
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            {/* Overlap Matrix Heatmap */}
+            <div className="tui-card bg-card-bg border border-card-border rounded p-4">
+              <h3 className="text-xs font-medium text-text-secondary mb-3">
+                Shared Liquidators Between Protocols
+              </h3>
+              {(() => {
+                const protocols = data.protocolStats.map((p) => p.protocol).sort()
+                // Build lookup for pairwise data
+                const pairKey = (a: string, b: string) =>
+                  a < b ? `${a}|${b}` : `${b}|${a}`
+                const pairMap = new Map<string, typeof data.overlapMatrix[0]>()
+                for (const o of data.overlapMatrix) {
+                  pairMap.set(pairKey(o.protocolA, o.protocolB), o)
+                }
+                const diagMap = new Map<string, typeof data.protocolStats[0]>()
+                for (const p of data.protocolStats) {
+                  diagMap.set(p.protocol, p)
+                }
+                // Find max shared for color scaling (exclude diagonal)
+                const maxShared = Math.max(
+                  ...data.overlapMatrix.map((o) => o.sharedLiquidators),
+                  1
+                )
+
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[11px]">
+                      <thead>
+                        <tr>
+                          <th className="pb-2 text-left font-medium text-text-tertiary w-[100px]"></th>
+                          {protocols.map((p) => (
+                            <th
+                              key={p}
+                              className="pb-2 text-center font-medium text-text-secondary px-2"
+                            >
+                              {protocolLabel(p)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {protocols.map((row) => (
+                          <tr key={row}>
+                            <td className="py-2 font-medium text-text-secondary pr-2">
+                              {protocolLabel(row)}
+                            </td>
+                            {protocols.map((col) => {
+                              const isDiag = row === col
+                              const diag = diagMap.get(row)
+                              const pair = !isDiag ? pairMap.get(pairKey(row, col)) : null
+
+                              const count = isDiag
+                                ? diag?.uniqueLiquidators || 0
+                                : pair?.sharedLiquidators || 0
+                              const intensity = isDiag
+                                ? 1
+                                : count / maxShared
+
+                              return (
+                                <td
+                                  key={col}
+                                  className="py-2 text-center px-2 relative group"
+                                  style={{ cursor: "default" }}
+                                >
+                                  <div
+                                    className="rounded px-2 py-2 transition-all"
+                                    style={{
+                                      background: isDiag
+                                        ? "var(--accent-orange)"
+                                        : `rgba(255, 107, 53, ${Math.max(0.06, intensity * 0.55)})`,
+                                      color: isDiag
+                                        ? "#fff"
+                                        : intensity > 0.4
+                                        ? "var(--text-primary)"
+                                        : "var(--text-secondary)",
+                                      fontWeight: isDiag ? 700 : count > 0 ? 600 : 400,
+                                      fontSize: isDiag ? 13 : 12,
+                                    }}
+                                  >
+                                    {count}
+                                  </div>
+                                  {/* Hover tooltip */}
+                                  <div
+                                    className="absolute z-20 hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 min-w-[160px]"
+                                    style={{
+                                      background: "var(--tooltip-bg)",
+                                      border: "1px solid var(--card-border)",
+                                      borderRadius: 6,
+                                      padding: "8px 12px",
+                                      fontSize: 10,
+                                      color: "var(--text-primary)",
+                                      fontFamily: "JetBrains Mono, monospace",
+                                      pointerEvents: "none",
+                                    }}
+                                  >
+                                    {isDiag ? (
+                                      <>
+                                        <div className="font-semibold mb-1" style={{ color: "var(--accent-orange)" }}>
+                                          {protocolLabel(row)}
+                                        </div>
+                                        <div className="flex justify-between mb-0.5">
+                                          <span className="text-text-tertiary">Liquidators</span>
+                                          <span>{diag?.uniqueLiquidators || 0}</span>
+                                        </div>
+                                        <div className="flex justify-between mb-0.5">
+                                          <span className="text-text-tertiary">Volume</span>
+                                          <span>{formatUSD(diag?.totalVolume || 0)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-text-tertiary">Profit</span>
+                                          <span className="text-positive">{formatUSD(diag?.totalProfit || 0)}</span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div className="font-semibold mb-1" style={{ color: "var(--accent-orange)" }}>
+                                          {protocolLabel(row)} + {protocolLabel(col)}
+                                        </div>
+                                        <div className="flex justify-between mb-0.5">
+                                          <span className="text-text-tertiary">Shared Bots</span>
+                                          <span>{pair?.sharedLiquidators || 0}</span>
+                                        </div>
+                                        <div className="flex justify-between mb-0.5">
+                                          <span className="text-text-tertiary">Combined Vol</span>
+                                          <span>{formatUSD(pair?.sharedVolume || 0)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span className="text-text-tertiary">Combined Profit</span>
+                                          <span className="text-positive">{formatUSD(pair?.sharedProfit || 0)}</span>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="text-[9px] text-text-tertiary mt-3">
+                      Diagonal (orange) = total unique liquidators per protocol.
+                      Off-diagonal = bots active on <strong>both</strong> protocols. Hover for details.
+                    </p>
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Overlap Insights */}
+            <div className="tui-card bg-card-bg border border-card-border rounded p-4">
+              <h3 className="text-xs font-medium text-text-secondary mb-3">
+                Protocol Overlap Rankings
+              </h3>
+              <div className="space-y-3">
+                {data.overlapMatrix
+                  .sort((a, b) => b.sharedLiquidators - a.sharedLiquidators)
+                  .map((o, i) => {
+                    const maxShared = data.overlapMatrix[0]?.sharedLiquidators || 1
+                    const pct = (o.sharedLiquidators / maxShared) * 100
+                    // Calculate what % of each protocol's liquidators are shared
+                    const statsA = data.protocolStats.find((p) => p.protocol === o.protocolA)
+                    const statsB = data.protocolStats.find((p) => p.protocol === o.protocolB)
+                    const pctOfA = statsA ? ((o.sharedLiquidators / statsA.uniqueLiquidators) * 100).toFixed(0) : "?"
+                    const pctOfB = statsB ? ((o.sharedLiquidators / statsB.uniqueLiquidators) * 100).toFixed(0) : "?"
+
+                    return (
+                      <div key={`${o.protocolA}-${o.protocolB}`}>
+                        <div className="flex items-baseline justify-between text-[11px] mb-0.5">
+                          <span className="font-medium text-text-primary">
+                            <span className="text-text-tertiary mr-1.5">#{i + 1}</span>
+                            {protocolLabel(o.protocolA)} + {protocolLabel(o.protocolB)}
+                          </span>
+                          <span className="text-accent font-mono font-semibold">
+                            {o.sharedLiquidators} shared
+                          </span>
+                        </div>
+                        <div className="h-2 bg-card-border/30 rounded overflow-hidden">
+                          <div
+                            className="h-full rounded transition-all"
+                            style={{
+                              width: `${pct}%`,
+                              background: "var(--accent-orange)",
+                              opacity: 0.7,
+                            }}
+                          />
+                        </div>
+                        <div className="flex items-center gap-3 text-[9px] text-text-tertiary mt-0.5">
+                          <span>{pctOfA}% of {protocolLabel(o.protocolA)}</span>
+                          <span>{pctOfB}% of {protocolLabel(o.protocolB)}</span>
+                          <span className="text-positive">{formatUSD(o.sharedProfit)} profit</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                {data.overlapMatrix.length === 0 && (
+                  <div className="text-text-tertiary text-xs text-center py-8">
+                    Select the &ldquo;All&rdquo; protocol filter to see overlap data
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-text-tertiary mt-4 leading-relaxed border-t border-card-border pt-3">
+                Multi-protocol operators run the same liquidation infrastructure across
+                different lending markets. The liquidation economy has no protocol loyalty
+                — bots go where the profit is.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* === SECTION 2: Collateral-Debt Pair Treemap === */}
       <div>
