@@ -192,7 +192,31 @@ export async function GET(request: Request) {
       crossProtocolTotalDistinct = crossProtocol.reduce((s, r) => s + r.count, 0)
     }
 
-    // 7. Liquidation bonus efficiency by asset
+    // 7. Top collateral-debt pairs by volume (for treemap)
+    const collateralDebtPairs = await rawSql(`
+      SELECT
+        collateral_symbol,
+        debt_symbol,
+        collateral_symbol || '/' || debt_symbol as pair,
+        COUNT(*)::int as event_count,
+        COALESCE(SUM(collateral_amount_usd), 0) as total_volume,
+        COALESCE(SUM(gross_profit_usd), 0) as total_profit,
+        COUNT(DISTINCT liquidator)::int as unique_liquidators,
+        COALESCE(AVG(
+          CASE WHEN debt_amount_usd > 0
+            THEN (collateral_amount_usd - debt_amount_usd) / debt_amount_usd * 100
+            ELSE 0
+          END
+        ), 0) as avg_bonus_pct
+      FROM liquidation_events
+      WHERE 1=1 ${protocolFilter}
+      GROUP BY collateral_symbol, debt_symbol
+      HAVING COUNT(*) >= 2
+      ORDER BY total_volume DESC
+      LIMIT 30
+    `)
+
+    // 8. Liquidation bonus efficiency by asset
     const bonusEfficiency = await rawSql(`
       SELECT
         collateral_symbol,
@@ -282,6 +306,16 @@ export async function GET(request: Request) {
         breakdown: crossProtocol,
         totalDistinct: crossProtocolTotalDistinct,
       },
+      collateralDebtPairs: collateralDebtPairs.map((r: any) => ({
+        collateral: r.collateral_symbol,
+        debt: r.debt_symbol,
+        pair: r.pair,
+        eventCount: Number(r.event_count),
+        totalVolume: Number(r.total_volume),
+        totalProfit: Number(r.total_profit),
+        uniqueLiquidators: Number(r.unique_liquidators),
+        avgBonusPct: Number(r.avg_bonus_pct),
+      })),
     })
   } catch (e: any) {
     console.error("Insights API error:", e)

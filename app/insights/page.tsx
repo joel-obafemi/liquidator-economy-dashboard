@@ -11,7 +11,7 @@ import { SkeletonBar, SkeletonKpiRow, SkeletonChart } from "@/components/skeleto
 import Link from "next/link"
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area, LineChart, Line, Cell,
+  AreaChart, Area, LineChart, Line, Cell, Treemap,
 } from "recharts"
 
 interface InsightsData {
@@ -79,6 +79,16 @@ interface InsightsData {
     breakdown: Array<{ numProtocols: number; count: number; totalProfit: number }>
     totalDistinct: number
   }
+  collateralDebtPairs: Array<{
+    collateral: string
+    debt: string
+    pair: string
+    eventCount: number
+    totalVolume: number
+    totalProfit: number
+    uniqueLiquidators: number
+    avgBonusPct: number
+  }>
 }
 
 const BUCKET_LABELS: Record<string, string> = {
@@ -98,6 +108,46 @@ const BUCKET_ORDER = [
 ]
 
 const BONUS_EFFICIENCY_PAGE_SIZE = 20
+
+function TreemapCell(props: any) {
+  const { x, y, width, height, name, fill, volume } = props
+  if (width < 2 || height < 2) return null
+  const showLabel = width > 55 && height > 30
+  const showVolume = width > 70 && height > 45
+  const textShadow = "0 1px 3px rgba(0,0,0,0.6)"
+  return (
+    <g>
+      <rect
+        x={x} y={y} width={width} height={height}
+        fill={fill} opacity={0.8}
+        rx={3} ry={3}
+        style={{ cursor: "pointer" }}
+      />
+      {showLabel && (
+        <text
+          x={x + width / 2} y={y + height / 2 - (showVolume ? 6 : 0)}
+          textAnchor="middle" dominantBaseline="central"
+          fill="#fff" fontSize={width > 100 ? 11 : 9.5} fontWeight={500}
+          fontFamily="JetBrains Mono, monospace"
+          style={{ pointerEvents: "none", textShadow }}
+        >
+          {name}
+        </text>
+      )}
+      {showVolume && (
+        <text
+          x={x + width / 2} y={y + height / 2 + 12}
+          textAnchor="middle" dominantBaseline="central"
+          fill="rgba(255,255,255,0.8)" fontSize={8.5} fontWeight={400}
+          fontFamily="JetBrains Mono, monospace"
+          style={{ pointerEvents: "none", textShadow }}
+        >
+          {formatUSD(volume)}
+        </text>
+      )}
+    </g>
+  )
+}
 
 export default function InsightsPage() {
   const [protocol, setProtocol] = useState("all")
@@ -156,6 +206,26 @@ export default function InsightsPage() {
 
         {/* Histogram */}
         <SkeletonChart height={250} />
+
+        {/* Treemap section */}
+        <div className="space-y-3">
+          <SkeletonBar width={320} height={12} className="animate-pulse" />
+          <div className="grid grid-cols-3 gap-4">
+            <div className="col-span-2"><SkeletonChart height={380} /></div>
+            <div className="tui-card bg-card-bg border border-card-border rounded p-4 animate-pulse space-y-3">
+              <SkeletonBar width={120} height={11} />
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={i} className="space-y-1">
+                  <div className="flex justify-between">
+                    <SkeletonBar width={80} height={10} />
+                    <SkeletonBar width={60} height={10} />
+                  </div>
+                  <SkeletonBar width="100%" height={8} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
 
         {/* Cascades section */}
         <div className="space-y-3">
@@ -374,7 +444,152 @@ export default function InsightsPage() {
         </div>
       </div>
 
-      {/* === SECTION 2: Cascades === */}
+      {/* === SECTION 2: Collateral-Debt Pair Treemap === */}
+      <div>
+        <h2 className="text-sm font-semibold text-accent mb-3">Top Collateral–Debt Pairs by Liquidation Volume</h2>
+        <div className="grid grid-cols-3 gap-4">
+          {/* Treemap */}
+          <div className="col-span-2 tui-card bg-card-bg border border-card-border rounded p-4">
+            <h3 className="text-xs font-medium text-text-secondary mb-3">
+              Volume Treemap — larger area = more liquidation volume
+            </h3>
+            <div className="h-[380px]">
+              {(data?.collateralDebtPairs || []).length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <Treemap
+                    data={(data?.collateralDebtPairs || []).map((p, i) => ({
+                      name: p.pair,
+                      size: p.totalVolume,
+                      volume: p.totalVolume,
+                      profit: p.totalProfit,
+                      events: p.eventCount,
+                      liquidators: p.uniqueLiquidators,
+                      bonus: p.avgBonusPct,
+                      fill: [
+                        CHART_COLORS.aave_v3,
+                        CHART_COLORS.morpho_blue,
+                        CHART_COLORS.spark,
+                        CHART_COLORS.fluid,
+                        CHART_COLORS.accent,
+                        "#6366F1",
+                        "#EC4899",
+                        "#14B8A6",
+                      ][i % 8],
+                    }))}
+                    dataKey="size"
+                    stroke="var(--card-bg)"
+                    isAnimationActive={false}
+                    content={<TreemapCell />}
+                  >
+                    <Tooltip
+                      content={({ payload }: any) => {
+                        if (!payload || !payload.length) return null
+                        const d = payload[0]?.payload
+                        if (!d) return null
+                        return (
+                          <div
+                            style={{
+                              background: "var(--tooltip-bg)",
+                              border: "1px solid var(--card-border)",
+                              borderRadius: 6,
+                              padding: "10px 14px",
+                              fontSize: 11,
+                              color: "var(--text-primary)",
+                              fontFamily: "JetBrains Mono, monospace",
+                              minWidth: 180,
+                            }}
+                          >
+                            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6, color: d.fill }}>
+                              {d.name}
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                              <span style={{ color: "var(--text-tertiary)" }}>Volume</span>
+                              <span style={{ fontWeight: 600 }}>{formatUSD(d.volume)}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                              <span style={{ color: "var(--text-tertiary)" }}>Profit</span>
+                              <span style={{ color: "var(--positive)" }}>{formatUSD(d.profit)}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                              <span style={{ color: "var(--text-tertiary)" }}>Events</span>
+                              <span>{formatNumber(d.events)}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                              <span style={{ color: "var(--text-tertiary)" }}>Liquidators</span>
+                              <span>{d.liquidators}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                              <span style={{ color: "var(--text-tertiary)" }}>Avg Bonus</span>
+                              <span>{d.bonus.toFixed(2)}%</span>
+                            </div>
+                          </div>
+                        )
+                      }}
+                    />
+                  </Treemap>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-text-tertiary text-xs">No data</div>
+              )}
+            </div>
+          </div>
+
+          {/* Top Pairs Ranked List */}
+          <div className="tui-card bg-card-bg border border-card-border rounded p-4">
+            <h3 className="text-xs font-medium text-text-secondary mb-3">
+              Top Pairs Ranked
+            </h3>
+            <div className="space-y-2 overflow-y-auto max-h-[360px] pr-1">
+              {(data?.collateralDebtPairs || []).slice(0, 15).map((p, i) => {
+                const maxVol = data?.collateralDebtPairs?.[0]?.totalVolume || 1
+                const pct = (p.totalVolume / maxVol) * 100
+                return (
+                  <div key={p.pair}>
+                    <div className="flex items-baseline justify-between text-[11px] mb-0.5">
+                      <span className="font-medium text-text-primary">
+                        <span className="text-text-tertiary mr-1.5">#{i + 1}</span>
+                        {p.pair}
+                      </span>
+                      <span className="text-text-secondary font-mono text-[10px]">
+                        {formatUSD(p.totalVolume)}
+                      </span>
+                    </div>
+                    <div className="h-2 bg-card-border/30 rounded overflow-hidden">
+                      <div
+                        className="h-full rounded transition-all"
+                        style={{
+                          width: `${pct}%`,
+                          backgroundColor: [
+                            CHART_COLORS.aave_v3,
+                            CHART_COLORS.morpho_blue,
+                            CHART_COLORS.spark,
+                            CHART_COLORS.fluid,
+                            CHART_COLORS.accent,
+                            "#6366F1",
+                            "#EC4899",
+                            "#14B8A6",
+                          ][i % 8],
+                          opacity: 0.8,
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center gap-3 text-[9px] text-text-tertiary mt-0.5">
+                      <span>{formatNumber(p.eventCount)} events</span>
+                      <span className="text-positive">{formatUSD(p.totalProfit)} profit</span>
+                      <span>{p.uniqueLiquidators} liquidators</span>
+                    </div>
+                  </div>
+                )
+              })}
+              {(!data?.collateralDebtPairs || data.collateralDebtPairs.length === 0) && (
+                <div className="text-text-tertiary text-xs text-center py-8">No data</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* === SECTION 3: Cascades === */}
       <div>
         <h2 className="text-sm font-semibold text-accent mb-3">Liquidation Cascades</h2>
         <div className="grid grid-cols-4 gap-3 mb-4">

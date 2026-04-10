@@ -3,6 +3,7 @@ import { Suspense } from "react"
 import { NavHeader } from "@/components/nav-header"
 import { Footer } from "@/components/footer"
 import { ThemeProvider } from "@/components/theme-provider"
+import { RouteRestorer } from "@/components/route-restorer"
 import "./globals.css"
 
 export const metadata: Metadata = {
@@ -49,6 +50,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <ThemeProvider>
+          <RouteRestorer />
           <div
             className="min-h-screen font-mono flex flex-col"
             style={{ background: "var(--background)", color: "var(--text-primary)" }}
