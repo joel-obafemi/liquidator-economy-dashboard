@@ -75,67 +75,108 @@ async function getEthPrice(timestamp: number): Promise<number> {
   return 0
 }
 
+// Try fetching a receipt with retries across different RPCs
+async function getReceiptWithRetry(txHash: `0x${string}`, retries = 3): Promise<any> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      return await client.getTransactionReceipt({ hash: txHash })
+    } catch (e: any) {
+      if (attempt === retries - 1) throw e
+      // Wait longer between retries
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
+    }
+  }
+}
+
 async function main() {
   console.log("=== Backfilling Gas Costs ===\n")
 
+  // Check how many need backfilling
+  const countResult = await pool.query(
+    "SELECT COUNT(*)::int as cnt FROM liquidation_events WHERE gas_used IS NULL"
+  )
+  const totalNeeded = countResult.rows[0].cnt
+  console.log(`  Events needing gas data: ${totalNeeded}\n`)
+
   const BATCH_SIZE = 50
-  let offset = 0
+  const MAX_PASSES = 3   // retry failed events up to 3 passes
   let totalUpdated = 0
   let totalErrors = 0
 
-  while (true) {
-    const rows = await pool.query(
-      `SELECT id, tx_hash, block_timestamp FROM liquidation_events
-       WHERE gas_used IS NULL
-       ORDER BY block_number ASC
-       LIMIT $1 OFFSET $2`,
-      [BATCH_SIZE, offset]
-    )
+  for (let pass = 1; pass <= MAX_PASSES; pass++) {
+    let passUpdated = 0
+    let passErrors = 0
 
-    if (rows.rows.length === 0) break
-
-    const PARALLEL = 5
-    for (let i = 0; i < rows.rows.length; i += PARALLEL) {
-      const batch = rows.rows.slice(i, i + PARALLEL)
-
-      await Promise.allSettled(
-        batch.map(async (row: any) => {
-          try {
-            const receipt = await client.getTransactionReceipt({
-              hash: row.tx_hash as `0x${string}`,
-            })
-
-            const gasUsed = Number(receipt.gasUsed)
-            const effectiveGasPrice = Number(receipt.effectiveGasPrice)
-            const gasCostEth = (gasUsed * effectiveGasPrice) / 1e18
-            const gasPriceGwei = effectiveGasPrice / 1e9
-
-            const ethPrice = await getEthPrice(Number(row.block_timestamp))
-            const gasCostUsd = gasCostEth * ethPrice
-
-            await pool.query(
-              `UPDATE liquidation_events
-               SET gas_used = $1, gas_price_gwei = $2, gas_cost_eth = $3, gas_cost_usd = $4,
-                   net_profit_usd = gross_profit_usd - $4
-               WHERE id = $5`,
-              [gasUsed, gasPriceGwei, gasCostEth, gasCostUsd, row.id]
-            )
-            totalUpdated++
-          } catch (e: any) {
-            totalErrors++
-          }
-        })
-      )
-
-      // Rate limit
-      await new Promise((r) => setTimeout(r, 300))
+    if (pass > 1) {
+      console.log(`\n--- Retry pass ${pass}/${MAX_PASSES} ---`)
     }
 
-    const pct = totalUpdated + totalErrors
-    console.log(`  Progress: ${totalUpdated} updated, ${totalErrors} errors`)
+    while (true) {
+      // No OFFSET: successful updates remove rows from the result set,
+      // so we always query from the top. Failed rows reappear naturally.
+      const rows = await pool.query(
+        `SELECT id, tx_hash, block_timestamp FROM liquidation_events
+         WHERE gas_used IS NULL
+         ORDER BY block_number ASC
+         LIMIT $1`,
+        [BATCH_SIZE]
+      )
 
-    if (rows.rows.length < BATCH_SIZE) break
-    offset += BATCH_SIZE
+      if (rows.rows.length === 0) break
+
+      const PARALLEL = 5
+      let batchUpdated = 0
+
+      for (let i = 0; i < rows.rows.length; i += PARALLEL) {
+        const batch = rows.rows.slice(i, i + PARALLEL)
+
+        await Promise.allSettled(
+          batch.map(async (row: any) => {
+            try {
+              const receipt = await getReceiptWithRetry(row.tx_hash as `0x${string}`)
+
+              const gasUsed = Number(receipt.gasUsed)
+              const effectiveGasPrice = Number(receipt.effectiveGasPrice)
+              const gasCostEth = (gasUsed * effectiveGasPrice) / 1e18
+              const gasPriceGwei = effectiveGasPrice / 1e9
+
+              const ethPrice = await getEthPrice(Number(row.block_timestamp))
+              const gasCostUsd = gasCostEth * ethPrice
+
+              await pool.query(
+                `UPDATE liquidation_events
+                 SET gas_used = $1, gas_price_gwei = $2, gas_cost_eth = $3, gas_cost_usd = $4,
+                     net_profit_usd = gross_profit_usd - $4
+                 WHERE id = $5`,
+                [gasUsed, gasPriceGwei, gasCostEth, gasCostUsd, row.id]
+              )
+              totalUpdated++
+              passUpdated++
+              batchUpdated++
+            } catch (e: any) {
+              totalErrors++
+              passErrors++
+            }
+          })
+        )
+
+        // Rate limit
+        await new Promise((r) => setTimeout(r, 300))
+      }
+
+      console.log(`  Progress: ${totalUpdated} updated, ${totalErrors} errors (pass ${pass})`)
+
+      // If no updates in this batch, all remaining are failing — move to next pass
+      if (batchUpdated === 0) break
+    }
+
+    console.log(`  Pass ${pass} complete: +${passUpdated} updated, ${passErrors} errors`)
+
+    // If nothing updated this pass, remaining events are truly unreachable
+    if (passUpdated === 0) {
+      console.log("  No new updates this pass — stopping retries.")
+      break
+    }
   }
 
   console.log(`\n=== Gas Backfill Complete ===`)
