@@ -2,7 +2,7 @@ import Link from "next/link"
 
 export const metadata = {
   title: "Methodology | Liquidator Economy",
-  description: "How we collect, calculate, and present liquidation data from Aave V3, SparkLend, Morpho Blue, and Fluid.",
+  description: "How we collect, calculate, and present liquidation data from Aave V3, SparkLend, Morpho, and Fluid.",
 }
 
 export default function MethodologyPage() {
@@ -14,7 +14,7 @@ export default function MethodologyPage() {
         <p className="text-[12px] text-text-secondary mt-2 leading-relaxed">
           Transparency is the foundation of credible research. This page documents
           exactly how the Liquidator Economy dashboard collects, prices, and aggregates
-          liquidation data from Aave V3, SparkLend, Morpho Blue, and Fluid on Ethereum
+          liquidation data from Aave V3, SparkLend, Morpho, and Fluid on Ethereum
           mainnet, so you can verify, reproduce, or critique every number we publish.
         </p>
       </div>
@@ -54,7 +54,7 @@ export default function MethodologyPage() {
                 </a>
               </li>
               <li>
-                <span className="text-text-tertiary">Morpho Blue:</span>{" "}
+                <span className="text-text-tertiary">Morpho:</span>{" "}
                 <a
                   href="https://etherscan.io/address/0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb"
                   target="_blank"
@@ -96,7 +96,7 @@ export default function MethodologyPage() {
 )`}
             </pre>
             <p className="mt-3">
-              Morpho Blue uses a different shape. Each liquidation carries a bytes32
+              Morpho uses a different shape. Each liquidation carries a bytes32
               market ID rather than token addresses. We call{" "}
               <code className="text-accent font-mono">idToMarketParams(id)</code> on the
               Morpho contract once per market to resolve the loan/collateral tokens,
@@ -145,7 +145,7 @@ export default function MethodologyPage() {
             <p className="text-text-primary font-medium mb-1">Block range</p>
             <p>
               Aave V3 from block 16,291,127 (Jan 27, 2023). SparkLend from block
-              17,185,580 (May 2023). Morpho Blue from block 18,883,124 (Dec 27, 2023).
+              17,185,580 (May 2023). Morpho from block 18,883,124 (Dec 27, 2023).
               Fluid from block ~19,500,000 (April 2024). All protocols are continuously
               indexed up to the current block.
             </p>
@@ -204,7 +204,7 @@ export default function MethodologyPage() {
             average, not a delayed price feed, not an interpolation.
           </p>
           <p>
-            <span className="text-text-primary font-medium">Morpho Blue pricing:</span>{" "}
+            <span className="text-text-primary font-medium">Morpho pricing:</span>{" "}
             Morpho uses a separate oracle per market, so we first attempt to price every
             Morpho liquidation using the Aave V3 oracle (which covers the majority of
             tokens used as Morpho collateral/debt). For tokens the Aave oracle
@@ -503,7 +503,7 @@ JOIN liquidator_proto b
             </li>
             <li>
               <span className="text-text-primary font-medium">Morpho bad debt is tracked but not yet visualised.</span>{" "}
-              Unlike Aave and Spark, Morpho Blue can end up in a state where the
+              Unlike Aave and Spark, Morpho can end up in a state where the
               liquidator couldn&apos;t fully cover a position. The remainder is
               &ldquo;socialised&rdquo; as bad debt across that market&apos;s lenders. We
               store this as <code className="text-accent font-mono">bad_debt_assets</code>{" "}

@@ -16,7 +16,7 @@ import {
 const PROTOCOL_NAME_MAP: Record<string, string> = {
   aave_v3: "Aave V3",
   spark: "SparkLend",
-  morpho_blue: "Morpho Blue",
+  morpho_blue: "Morpho",
   fluid: "Fluid",
 }
 

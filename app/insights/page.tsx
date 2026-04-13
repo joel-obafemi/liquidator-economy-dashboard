@@ -576,7 +576,7 @@ export default function InsightsPage() {
                     formatter={(v: number, name: string) => {
                       const labels: Record<string, string> = {
                         aave_v3: "Aave V3", spark: "SparkLend",
-                        morpho_blue: "Morpho Blue", fluid: "Fluid",
+                        morpho_blue: "Morpho", fluid: "Fluid",
                       }
                       return [formatUSD(v), labels[name] || name]
                     }}

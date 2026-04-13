@@ -47,7 +47,7 @@ export function etherscanAddress(address: string): string {
 export function protocolLabel(protocol: string): string {
   if (protocol === "aave_v3") return "Aave V3"
   if (protocol === "spark") return "SparkLend"
-  if (protocol === "morpho_blue") return "Morpho Blue"
+  if (protocol === "morpho_blue") return "Morpho"
   if (protocol === "fluid") return "Fluid"
   return protocol
 }

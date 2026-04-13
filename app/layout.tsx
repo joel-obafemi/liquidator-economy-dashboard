@@ -8,7 +8,7 @@ import "./globals.css"
 
 export const metadata: Metadata = {
   title: "Liquidator Economy Terminal — Datum Labs",
-  description: "Real-time liquidator economy analytics across Aave V3, SparkLend, Morpho Blue, and Fluid by Datum Labs.",
+  description: "Real-time liquidator economy analytics across Aave V3, SparkLend, Morpho, and Fluid by Datum Labs.",
   icons: {
     icon: "/branding/icon.png",
     apple: "/branding/icon.png",
