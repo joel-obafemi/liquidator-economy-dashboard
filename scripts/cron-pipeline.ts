@@ -12,10 +12,16 @@
  * Run with:
  *   npx tsx -r tsconfig-paths/register scripts/cron-pipeline.ts
  */
-import { Pool } from "@neondatabase/serverless"
+import { Pool, neonConfig } from "@neondatabase/serverless"
+import ws from "ws"
 import * as fs from "fs"
 import * as path from "path"
 import { scanLiquidations } from "@/lib/scanner"
+
+// Wire an explicit WebSocket implementation so this works on any Node version.
+// Node 22.4+ has a global WebSocket, but older runners — and certain runtimes —
+// do not. The Neon driver picks this up before the first Pool is opened.
+;(neonConfig as any).webSocketConstructor = ws
 
 // Load .env.local if present (for local dev); GitHub Actions sets envs directly
 const envPath = path.resolve(__dirname, "../.env.local")
