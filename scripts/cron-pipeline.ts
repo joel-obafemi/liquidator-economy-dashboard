@@ -44,7 +44,10 @@ if (!process.env.DATABASE_URL) {
 }
 const dbUrl = process.env.DATABASE_URL.replace(/&?channel_binding=[^&]*/g, "")
 
-const RPCS = [
+// Prepend Alchemy when configured — we use this for receipt fetches, which
+// work on any RPC, but Alchemy gives us better throughput and uptime.
+const RPCS: string[] = [
+  ...(process.env.ALCHEMY_RPC_URL ? [process.env.ALCHEMY_RPC_URL] : []),
   "https://ethereum-rpc.publicnode.com",
   "https://eth.llamarpc.com",
   "https://rpc.ankr.com/eth",
