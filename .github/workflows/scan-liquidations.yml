@@ -1,0 +1,46 @@
+name: Scan & Enrich Liquidations
+
+# Runs the full ingest + enrichment pipeline against the Neon database.
+# Keeps Vercel compute free for UI requests — all heavy work happens on
+# GitHub-hosted runners.
+
+on:
+  schedule:
+    # Every hour at :05 to stagger with other GitHub cron jobs.
+    - cron: "5 * * * *"
+  workflow_dispatch:
+    inputs:
+      force_enrich:
+        description: "Run enrichment even if no new events were scanned"
+        required: false
+        default: "false"
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run pipeline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Optional — falls back to public RPCs if unset
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+        run: |
+          if [ "${{ github.event.inputs.force_enrich }}" = "true" ]; then
+            npx tsx -r tsconfig-paths/register scripts/cron-pipeline.ts --force-enrich
+          else
+            npx tsx -r tsconfig-paths/register scripts/cron-pipeline.ts
+          fi
