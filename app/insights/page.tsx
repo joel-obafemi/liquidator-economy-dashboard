@@ -269,8 +269,8 @@ const FUNDING_CATEGORY_LABELS: Record<string, string> = {
   dex_swap: "DEX Swap",
   aggregator: "Aggregator",
   pre_funded: "Pre-funded (proven)",
-  unknown: "Unclassified",
-  unclassified: "Not yet scanned",
+  unknown: "Other / non-standard",
+  unclassified: "Awaiting scan",
 }
 
 const FUNDING_CATEGORY_COLORS: Record<string, string> = {
@@ -283,12 +283,12 @@ const FUNDING_CATEGORY_COLORS: Record<string, string> = {
 }
 
 const FUNDING_CATEGORY_DESCRIPTIONS: Record<string, string> = {
-  flash_loan: "Debt asset borrowed from a lending pool (Aave / Balancer / Maker / dYdX / Uniswap V3) and repaid in the same transaction.",
-  dex_swap: "Bot swapped a base asset (ETH, stables) to the debt asset via a DEX pool (Uniswap V2/V3, Curve, Balancer) inside the liquidation tx.",
+  flash_loan: "Debt asset borrowed from a lending pool (Aave V2/V3, Balancer, Maker DssFlash, dYdX Solo, or Uniswap V3) and repaid in the same transaction.",
+  dex_swap: "Bot swapped a base asset (ETH, stables) to the debt asset via a DEX pool (Uniswap V2/V3, Curve, or Balancer V2) inside the liquidation tx.",
   aggregator: "Bot used a DEX aggregator (1inch, 0x, Cowswap, Paraswap) to source the debt asset.",
-  pre_funded: "Liquidator's own wallet held ≥ the debt amount at block N-1 — proven self-funded via on-chain balanceOf check.",
-  unknown: "Receipt showed no swap or flash loan event, and no proven on-chain balance. Likely pre-funded but unverified.",
-  unclassified: "Not yet classified by the pipeline (new events awaiting next scan).",
+  pre_funded: "Liquidator's own address held ≥ the debt amount at block N-1 — proven self-funded via an on-chain balanceOf check.",
+  unknown: "Confirmed not pre-funded at block N-1 (balance < debt), and no flash-loan or DEX-swap event we track. Likely funded by a flash loan provider we don't yet match (Euler, Radiant, Morpho, Compound V3), a block-internal transfer from a treasury contract, a CEX withdrawal in a prior block, or a DEX pool outside our topic list (Sushi, Kyber, smaller venues).",
+  unclassified: "New events that the enrichment cron hasn't processed yet — classification will arrive on the next scheduled run.",
 }
 
 const BONUS_EFFICIENCY_PAGE_SIZE = 20
@@ -2111,6 +2111,30 @@ export default function InsightsPage() {
                   <span className="text-[10px] text-text-tertiary">
                     How bots source the debt asset to repay · {formatNumber(total)} events classified
                   </span>
+                </div>
+
+                {/* Methodology note — what each bucket actually means */}
+                <div
+                  className="tui-card rounded p-3 text-[10px] leading-relaxed"
+                  style={{
+                    background: "rgba(91, 127, 255, 0.05)",
+                    border: "1px solid rgba(91, 127, 255, 0.2)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  <span className="font-semibold text-text-primary">Methodology: </span>
+                  each event is checked in order against a deterministic pipeline — (1) known
+                  flash-loan event topics from 5 providers, (2) DEX swap topics from Uniswap
+                  V2/V3, Curve, Balancer V2, (3) aggregator router addresses, (4) an on-chain{" "}
+                  <code className="text-accent">balanceOf</code> check at block N-1 against the
+                  liquidator's own address. Events that match none of the above fall into{" "}
+                  <span style={{ color: FUNDING_CATEGORY_COLORS.unknown }}>
+                    "Other / non-standard"
+                  </span>
+                  . Those are <em>confirmed not pre-funded</em> (balance {"<"} debt) but get
+                  their debt asset from a path we don't yet classify: smaller flash-loan
+                  providers (Euler, Morpho, Radiant), treasury contracts, CEX withdrawals in
+                  prior blocks, or less-common DEX pools.
                 </div>
 
                 {/* Pie chart + per-category cards */}
