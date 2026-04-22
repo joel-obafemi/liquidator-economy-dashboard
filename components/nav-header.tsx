@@ -12,6 +12,7 @@ const API_MAP: Record<string, string[]> = {
   "/explorer": ["/api/liquidations?period=all&page=1&limit=50&sort=block_timestamp&order=DESC"],
   "/insights": ["/api/insights?protocol=all"],
   "/rekt-map": ["/api/rekt-map?protocol=all&period=all"],
+  "/clusters": ["/api/clusters?page=1&limit=25&sort=total_profit&order=DESC"],
 }
 
 function prefetchApis(href: string) {
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { href: "/explorer", label: "Explorer" },
   { href: "/insights", label: "Insights" },
   { href: "/rekt-map", label: "Rekt Map" },
+  { href: "/clusters", label: "Clusters" },
   { href: "/methodology", label: "Methodology" },
 ]
 

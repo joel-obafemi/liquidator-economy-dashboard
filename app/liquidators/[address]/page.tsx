@@ -35,6 +35,10 @@ interface ProfileData {
     lastActive: number
     uniqueBorrowers: number
     protocols: string[]
+    flashLoanCount: number
+    flashLoanVolume: number
+    flashLoanProfit: number
+    flashLoanSources: string[]
   }
   byProtocol: Array<{
     protocol: string
@@ -71,6 +75,8 @@ interface ProfileData {
     gasUsed: number
     blockTimestamp: number
     blockNumber: number
+    isFlashLoan: boolean
+    flashLoanSource: string | null
   }>
   fundingSource: {
     fromAddress: string
@@ -308,6 +314,32 @@ export default function LiquidatorProfilePage() {
             : "No gas data"}
         />
       </div>
+
+      {/* === Flash Loan Badge === */}
+      {summary.flashLoanCount > 0 && (
+        <div className="tui-card bg-yellow-500/5 border border-yellow-500/20 rounded p-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚡</span>
+            <div>
+              <span className="text-xs font-medium text-yellow-400">Flash Loan User</span>
+              <p className="text-[10px] text-text-tertiary mt-0.5">
+                {formatNumber(summary.flashLoanCount)} of {formatNumber(summary.totalCount)} events use flash loans
+                ({((summary.flashLoanCount / summary.totalCount) * 100).toFixed(0)}%)
+                {summary.flashLoanSources.length > 0 && (
+                  <> · via {summary.flashLoanSources.map(s => {
+                    const labels: Record<string, string> = { aave_v2: "Aave V2", aave_v3: "Aave V3", balancer: "Balancer", uniswap_v3: "Uniswap V3", maker: "Maker" }
+                    return labels[s] || s
+                  }).join(", ")}</>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs font-medium text-yellow-400">{formatUSD(summary.flashLoanProfit)}</div>
+            <div className="text-[10px] text-text-tertiary">flash profit · {formatUSD(summary.flashLoanVolume)} vol</div>
+          </div>
+        </div>
+      )}
 
       {/* === Funding Source / Deployer Card === */}
       {fundingSource && (
@@ -730,7 +762,14 @@ export default function LiquidatorProfilePage() {
                   <td className="py-2 pr-4 text-text-secondary whitespace-nowrap border-t border-card-border/40">
                     {formatDateTime(e.blockTimestamp)}
                   </td>
-                  <td className="py-2 pr-4 text-text-secondary border-t border-card-border/40">{protocolLabel(e.protocol)}</td>
+                  <td className="py-2 pr-4 text-text-secondary border-t border-card-border/40">
+                    <span className="inline-flex items-center gap-1">
+                      {protocolLabel(e.protocol)}
+                      {e.isFlashLoan && (
+                        <span className="text-[8px] px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-medium" title={`Flash loan via ${e.flashLoanSource || "unknown"}`}>⚡</span>
+                      )}
+                    </span>
+                  </td>
                   <td className="py-2 pr-4 whitespace-nowrap border-t border-card-border/40">{e.collateralSymbol}/{e.debtSymbol}</td>
                   <td className="py-2 pr-4 text-right whitespace-nowrap border-t border-card-border/40">{formatUSD(e.collateralAmountUsd)}</td>
                   <td className="py-2 pr-4 text-right whitespace-nowrap border-t border-card-border/40">{formatUSD(e.debtAmountUsd)}</td>

@@ -66,7 +66,8 @@ export async function GET(request: Request) {
         COALESCE(SUM(collateral_amount_usd), 0) as total_volume,
         COALESCE(SUM(gross_profit_usd), 0) as total_gross_profit,
         MAX(block_timestamp) as last_active,
-        array_agg(DISTINCT protocol) as protocols
+        array_agg(DISTINCT protocol) as protocols,
+        COUNT(*) FILTER (WHERE is_flash_loan = true)::int as flash_count
       FROM liquidation_events ${where}
       GROUP BY liquidator
       ORDER BY ${safeSort} ${safeOrder}
@@ -92,6 +93,7 @@ export async function GET(request: Request) {
         profitShare: totalProfit > 0 ? (Number(r.total_gross_profit) / totalProfit) * 100 : 0,
         lastActive: Number(r.last_active),
         protocols: r.protocols || [],
+        flashLoanCount: Number(r.flash_count || 0),
       })),
       total,
       page,

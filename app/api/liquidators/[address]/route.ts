@@ -29,7 +29,11 @@ export async function GET(
         MIN(block_timestamp) as first_active,
         MAX(block_timestamp) as last_active,
         COUNT(DISTINCT borrower)::int as unique_borrowers,
-        array_agg(DISTINCT protocol) as protocols
+        array_agg(DISTINCT protocol) as protocols,
+        COUNT(*) FILTER (WHERE is_flash_loan = true)::int as flash_loan_count,
+        COALESCE(SUM(collateral_amount_usd) FILTER (WHERE is_flash_loan = true), 0) as flash_loan_volume,
+        COALESCE(SUM(gross_profit_usd) FILTER (WHERE is_flash_loan = true), 0) as flash_loan_profit,
+        array_agg(DISTINCT flash_loan_source) FILTER (WHERE is_flash_loan = true) as flash_loan_sources
       FROM liquidation_events
       WHERE liquidator = $1`,
       [address]
@@ -121,6 +125,7 @@ export async function GET(
               collateral_symbol, debt_symbol,
               collateral_amount_usd, debt_amount_usd, gross_profit_usd,
               gas_cost_usd, net_profit_usd, gas_price_gwei, gas_used,
+              is_flash_loan, flash_loan_source,
               block_timestamp, block_number
        FROM liquidation_events
        WHERE liquidator = $1
@@ -156,6 +161,10 @@ export async function GET(
         lastActive: Number(summary.last_active),
         uniqueBorrowers: Number(summary.unique_borrowers),
         protocols: summary.protocols || [],
+        flashLoanCount: Number(summary.flash_loan_count || 0),
+        flashLoanVolume: Number(summary.flash_loan_volume || 0),
+        flashLoanProfit: Number(summary.flash_loan_profit || 0),
+        flashLoanSources: (summary.flash_loan_sources || []).filter(Boolean),
       },
       byProtocol: byProtocol.map((r: any) => ({
         protocol: r.protocol,
@@ -207,6 +216,8 @@ export async function GET(
         gasUsed: Number(r.gas_used || 0),
         blockTimestamp: Number(r.block_timestamp),
         blockNumber: Number(r.block_number),
+        isFlashLoan: r.is_flash_loan || false,
+        flashLoanSource: r.flash_loan_source || null,
       })),
       fundingSource,
     })

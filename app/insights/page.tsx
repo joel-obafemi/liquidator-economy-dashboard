@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useCachedFetch } from "@/lib/use-cached-fetch"
 import {
-  formatUSD, formatNumber, formatDate, formatAddress, etherscanAddress, protocolLabel, CHART_COLORS,
+  formatUSD, formatNumber, formatDate, formatAddress, etherscanAddress, etherscanTx, protocolLabel, CHART_COLORS,
 } from "@/lib/utils"
 import { MetricCard } from "@/components/metric-card"
 import { ProtocolToggle } from "@/components/protocol-toggle"
@@ -136,6 +137,93 @@ interface InsightsData {
     tierProfit: number
     tierEvents: number
   }>
+  flashLoans: {
+    stats: {
+      flashEvents: number
+      nonFlashEvents: number
+      flashLiquidators: number
+      nonFlashLiquidators: number
+      flashVolume: number
+      nonFlashVolume: number
+      flashProfit: number
+      nonFlashProfit: number
+      avgFlashSize: number
+      avgNonFlashSize: number
+      avgFlashProfit: number
+      avgNonFlashProfit: number
+      avgFlashGas: number
+      avgNonFlashGas: number
+      totalEvents: number
+    }
+    bySource: Array<{
+      source: string
+      eventCount: number
+      uniqueLiquidators: number
+      volume: number
+      profit: number
+    }>
+    monthly: Array<{
+      month: string
+      flashCount: number
+      nonFlashCount: number
+      flashVolume: number
+      nonFlashVolume: number
+    }>
+    topLiquidators: Array<{
+      liquidator: string
+      flashEvents: number
+      totalEvents: number
+      flashVolume: number
+      flashProfit: number
+      totalProfit: number
+    }>
+  }
+  badDebt?: {
+    monthly: Array<{
+      month: string
+      protocol: string
+      events: number
+      badDebt: number
+      borrowers: number
+    }>
+    topEvents: Array<{
+      txHash: string
+      blockNumber: number
+      blockTimestamp: number
+      protocol: string
+      collateralSymbol: string
+      debtSymbol: string
+      borrower: string
+      liquidator: string
+      badDebtUsd: number
+      collateralAmountUsd: number
+      debtAmountUsd: number
+    }>
+    byAsset: Array<{
+      collateralSymbol: string
+      events: number
+      badDebt: number
+      borrowers: number
+      latestTimestamp: number | null
+    }>
+  }
+  funding?: {
+    breakdown: Array<{
+      category: string
+      events: number
+      liquidators: number
+      volume: number
+      profit: number
+      avgSize: number
+      avgProfit: number
+      avgGas: number
+    }>
+    monthly: Array<{
+      month: string
+      category: string
+      events: number
+    }>
+  }
 }
 
 const BUCKET_LABELS: Record<string, string> = {
@@ -154,7 +242,71 @@ const BUCKET_ORDER = [
   "profit_0_10", "profit_10_100", "profit_100_1k", "profit_1k_10k", "profit_gt_10k",
 ]
 
+const FLASH_SOURCE_LABELS: Record<string, string> = {
+  aave_v2: "Aave V2",
+  aave_v3: "Aave V3",
+  balancer: "Balancer",
+  uniswap_v3: "Uniswap V3",
+  maker: "Maker",
+  maker_dai: "Maker DAI",
+  dydx: "dYdX Solo",
+  erc3156_other: "ERC-3156 Other",
+}
+
+const FLASH_SOURCE_COLORS: Record<string, string> = {
+  aave_v2: "#B6509E",
+  aave_v3: "#2EBAC6",
+  balancer: "#1E1E1E",
+  uniswap_v3: "#FF007A",
+  maker: "#1AAB9B",
+  maker_dai: "#1AAB9B",
+  dydx: "#6966FF",
+  erc3156_other: "#9CA3AF",
+}
+
+const FUNDING_CATEGORY_LABELS: Record<string, string> = {
+  flash_loan: "Flash Loan",
+  dex_swap: "DEX Swap",
+  aggregator: "Aggregator",
+  pre_funded: "Pre-funded (proven)",
+  unknown: "Unclassified",
+  unclassified: "Not yet scanned",
+}
+
+const FUNDING_CATEGORY_COLORS: Record<string, string> = {
+  flash_loan: "#FF6B35",   // Datum orange (like flash loans in branding)
+  dex_swap: "#5B7FFF",     // chart-1 blue
+  aggregator: "#B44AFF",   // chart-4 purple
+  pre_funded: "#10B981",   // success green (definitively proven)
+  unknown: "#6B7280",      // neutral gray
+  unclassified: "#374151", // dark gray
+}
+
+const FUNDING_CATEGORY_DESCRIPTIONS: Record<string, string> = {
+  flash_loan: "Debt asset borrowed from a lending pool (Aave / Balancer / Maker / dYdX / Uniswap V3) and repaid in the same transaction.",
+  dex_swap: "Bot swapped a base asset (ETH, stables) to the debt asset via a DEX pool (Uniswap V2/V3, Curve, Balancer) inside the liquidation tx.",
+  aggregator: "Bot used a DEX aggregator (1inch, 0x, Cowswap, Paraswap) to source the debt asset.",
+  pre_funded: "Liquidator's own wallet held ≥ the debt amount at block N-1 — proven self-funded via on-chain balanceOf check.",
+  unknown: "Receipt showed no swap or flash loan event, and no proven on-chain balance. Likely pre-funded but unverified.",
+  unclassified: "Not yet classified by the pipeline (new events awaiting next scan).",
+}
+
 const BONUS_EFFICIENCY_PAGE_SIZE = 20
+
+// Tab definitions — each tab groups a set of related sections. Order here is
+// the display order in the tab bar.
+const INSIGHT_TABS = [
+  { id: "profit", label: "Profit & Economics", icon: "💸" },
+  { id: "behavior", label: "Behavior & Markets", icon: "🏦" },
+  { id: "funding", label: "Funding & Flash Loans", icon: "⚡" },
+  { id: "badDebt", label: "Bad Debt", icon: "🩸" },
+] as const
+
+type InsightsTabId = (typeof INSIGHT_TABS)[number]["id"]
+
+function isValidTab(v: string | null): v is InsightsTabId {
+  return !!v && INSIGHT_TABS.some((t) => t.id === v)
+}
 
 function TreemapCell(props: any) {
   const { x, y, width, height, name, fill, volume } = props
@@ -199,6 +351,23 @@ function TreemapCell(props: any) {
 export default function InsightsPage() {
   const [protocol, setProtocol] = useState("all")
   const [bonusPage, setBonusPage] = useState(1)
+
+  // Tab selection with URL sync (?tab=funding makes shareable)
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const urlTab = searchParams?.get("tab")
+  const [tab, setTabState] = useState<InsightsTabId>(
+    isValidTab(urlTab ?? null) ? (urlTab as InsightsTabId) : "profit"
+  )
+  const setTab = (next: InsightsTabId) => {
+    setTabState(next)
+    const params = new URLSearchParams(Array.from(searchParams?.entries() ?? []))
+    if (next === "profit") params.delete("tab")
+    else params.set("tab", next)
+    router.replace(params.toString() ? `/insights?${params.toString()}` : "/insights", {
+      scroll: false,
+    })
+  }
 
   // Reset table pagination whenever the protocol filter changes
   useEffect(() => {
@@ -379,7 +548,36 @@ export default function InsightsPage() {
         <ProtocolToggle protocol={protocol} onProtocolChange={setProtocol} />
       </div>
 
+      {/* Tab bar — groups sections into focused views */}
+      <div
+        className="flex items-center gap-1 border-b"
+        style={{ borderColor: "var(--card-border)" }}
+      >
+        {INSIGHT_TABS.map((t) => {
+          const active = tab === t.id
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className="px-3 py-2 text-[11px] uppercase tracking-[0.08em] transition-colors"
+              style={{
+                color: active ? "var(--accent-orange)" : "var(--text-muted)",
+                borderBottom: active
+                  ? "2px solid var(--accent-orange)"
+                  : "2px solid transparent",
+                marginBottom: "-1px",
+                fontWeight: active ? 600 : 400,
+              }}
+            >
+              <span className="mr-1.5">{t.icon}</span>
+              {t.label}
+            </button>
+          )
+        })}
+      </div>
+
       {/* === SECTION 1: Net Profit Analysis === */}
+      {tab === "profit" && (
       <div>
         <h2 className="text-sm font-semibold text-accent mb-3">Net Profit Analysis (After Gas)</h2>
         <div className="grid grid-cols-5 gap-3">
@@ -410,8 +608,10 @@ export default function InsightsPage() {
           />
         </div>
       </div>
+      )}
 
       {/* Profit Distribution Histogram + Cross-Protocol Activity side-by-side */}
+      {tab === "profit" && (
       <div className="grid grid-cols-2 gap-4">
         <ChartWrapper title="Net Profit Distribution Per Liquidation" height={250}>
             {sortedDist.length > 0 ? (
@@ -510,8 +710,10 @@ export default function InsightsPage() {
           </p>
         </div>
       </div>
+      )}
 
       {/* === Liquidation Size Distribution + Monthly Profit === */}
+      {tab === "profit" && (
       <div className="grid grid-cols-2 gap-4">
         {/* Chart 3: Liquidation Size Distribution */}
         <ChartWrapper title="Liquidation Size Distribution" subtitle="How big are typical liquidations?">
@@ -593,9 +795,10 @@ export default function InsightsPage() {
           </div>
         </ChartWrapper>
       </div>
+      )}
 
       {/* === Cross-Protocol Bot Overlap Matrix === */}
-      {data?.overlapMatrix && data.overlapMatrix.length > 0 && data?.protocolStats && (
+      {tab === "behavior" && data?.overlapMatrix && data.overlapMatrix.length > 0 && data?.protocolStats && (
         <div>
           <h2 className="text-sm font-semibold text-accent mb-1">Cross-Protocol Bot Overlap</h2>
           <p className="text-[11px] text-text-tertiary mb-3">
@@ -816,6 +1019,7 @@ export default function InsightsPage() {
       )}
 
       {/* === SECTION 2: Collateral-Debt Pair Treemap === */}
+      {tab === "behavior" && (
       <div>
         <h2 className="text-sm font-semibold text-accent mb-3">Top Collateral–Debt Pairs by Liquidation Volume</h2>
         <div className="grid grid-cols-3 gap-4">
@@ -954,8 +1158,10 @@ export default function InsightsPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* === SECTION 3: Cascades === */}
+      {tab === "behavior" && (
       <div>
         <h2 className="text-sm font-semibold text-accent mb-3">Liquidation Cascades</h2>
         <div className="grid grid-cols-4 gap-3 mb-4">
@@ -1011,8 +1217,10 @@ export default function InsightsPage() {
           </table>
         </div>
       </div>
+      )}
 
       {/* === SECTION 3: Repeat Offenders === */}
+      {tab === "behavior" && (
       <div>
         <h2 className="text-sm font-semibold text-accent mb-3">Repeat Offenders</h2>
         <div className="grid grid-cols-4 gap-3 mb-4">
@@ -1080,8 +1288,10 @@ export default function InsightsPage() {
           </table>
         </div>
       </div>
+      )}
 
       {/* === SECTION 4: Market Concentration === */}
+      {tab === "behavior" && (
       <div>
         <h2 className="text-sm font-semibold text-accent mb-3">Market Concentration</h2>
         <div className="grid grid-cols-2 gap-4">
@@ -1162,8 +1372,10 @@ export default function InsightsPage() {
           </ChartWrapper>
         </div>
       </div>
+      )}
 
       {/* === Gas Strategy + Profit Concentration === */}
+      {tab === "profit" && (
       <div className="grid grid-cols-2 gap-4">
         {/* Chart 10: Gas Prices by Liquidator */}
         <ChartWrapper title="Gas Strategy by Top Liquidators" subtitle="How do bots compete on execution?">
@@ -1328,8 +1540,10 @@ export default function InsightsPage() {
           </div>
         </ChartWrapper>
       </div>
+      )}
 
       {/* === SECTION 5: Bonus Efficiency === */}
+      {tab === "profit" && (
       <div>
         <h2 className="text-sm font-semibold text-accent mb-3">Liquidation Bonus Efficiency by Asset</h2>
         {(() => {
@@ -1428,6 +1642,636 @@ export default function InsightsPage() {
           )
         })()}
       </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* FLASH LOAN ANALYSIS SECTION                                  */}
+      {/* ============================================================ */}
+      {tab === "funding" && data?.flashLoans && data.flashLoans.stats.flashEvents > 0 && (
+        <>
+          <div className="border-t border-card-border pt-4 mt-2">
+            <h2 className="text-sm font-semibold text-text-primary">⚡ Flash Loan Analysis</h2>
+            <p className="text-[10px] text-text-tertiary mt-0.5">
+              Transactions using flash loans from Aave, Balancer, Uniswap V3, or Maker to fund liquidations
+            </p>
+          </div>
+
+          {/* Flash Loan KPIs */}
+          <div className="grid grid-cols-4 gap-4">
+            <MetricCard
+              label="Flash Loan Events"
+              value={formatNumber(data.flashLoans.stats.flashEvents)}
+              sub={`${((data.flashLoans.stats.flashEvents / data.flashLoans.stats.totalEvents) * 100).toFixed(1)}% of all events`}
+              accent
+            />
+            <MetricCard
+              label="Flash Loan Volume"
+              value={formatUSD(data.flashLoans.stats.flashVolume)}
+              sub={`${((data.flashLoans.stats.flashVolume / (data.flashLoans.stats.flashVolume + data.flashLoans.stats.nonFlashVolume)) * 100).toFixed(1)}% of total volume`}
+            />
+            <MetricCard
+              label="Flash Loan Profit"
+              value={formatUSD(data.flashLoans.stats.flashProfit)}
+              sub={`Avg ${formatUSD(data.flashLoans.stats.avgFlashProfit)} per event`}
+            />
+            <MetricCard
+              label="Flash Liquidators"
+              value={formatNumber(data.flashLoans.stats.flashLiquidators)}
+              sub={`of ${data.flashLoans.stats.flashLiquidators + data.flashLoans.stats.nonFlashLiquidators} total`}
+            />
+          </div>
+
+          {/* Flash Loan Charts Row */}
+          <div className="grid grid-cols-2 gap-4">
+            {/* Flash vs Non-Flash Monthly */}
+            <ChartWrapper title="Flash Loan Adoption Over Time" height={260}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.flashLoans.monthly}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fontSize: 9, fill: "var(--text-tertiary)" }}
+                    tickFormatter={(v) => v.slice(2)}
+                  />
+                  <YAxis tick={{ fontSize: 10, fill: "var(--text-tertiary)" }} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--tooltip-bg)",
+                      border: "1px solid var(--card-border)",
+                      borderRadius: 4,
+                      fontSize: 11,
+                      color: "var(--text-primary)",
+                    }}
+                    formatter={(v: number, name: string) => {
+                      if (name === "flashCount") return [formatNumber(v), "Flash Loan"]
+                      return [formatNumber(v), "Non-Flash"]
+                    }}
+                  />
+                  <Bar dataKey="nonFlashCount" name="nonFlashCount" stackId="a" fill="var(--text-tertiary)" opacity={0.4} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="flashCount" name="flashCount" stackId="a" fill="#FBBF24" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartWrapper>
+
+            {/* Flash Loan Source Pie */}
+            <ChartWrapper title="Flash Loan Providers" height={260}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={data.flashLoans.bySource.map((s) => ({
+                      name: FLASH_SOURCE_LABELS[s.source] || s.source,
+                      value: s.eventCount,
+                      source: s.source,
+                    }))}
+                    cx="50%"
+                    cy="45%"
+                    innerRadius={55}
+                    outerRadius={90}
+                    dataKey="value"
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    labelLine={false}
+                  >
+                    {data.flashLoans.bySource.map((s) => (
+                      <Cell
+                        key={s.source}
+                        fill={FLASH_SOURCE_COLORS[s.source] || CHART_COLORS.accent}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--tooltip-bg)",
+                      border: "1px solid var(--card-border)",
+                      borderRadius: 4,
+                      fontSize: 11,
+                      color: "var(--text-primary)",
+                    }}
+                    formatter={(v: number) => [formatNumber(v), "Events"]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartWrapper>
+          </div>
+
+          {/* Flash vs Non-Flash Comparison Table */}
+          <div className="tui-card bg-card-bg border border-card-border rounded p-4">
+            <h3 className="text-xs font-medium text-text-secondary mb-3">
+              Flash Loan vs Non-Flash Loan Comparison
+            </h3>
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr className="text-text-tertiary border-b border-card-border">
+                  <th className="text-left pb-2 font-medium">Metric</th>
+                  <th className="text-right pb-2 font-medium">⚡ Flash Loan</th>
+                  <th className="text-right pb-2 font-medium">Standard</th>
+                  <th className="text-right pb-2 font-medium">Difference</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-card-border/50">
+                  <td className="py-2 text-text-secondary">Avg Liquidation Size</td>
+                  <td className="py-2 text-right font-medium text-accent">{formatUSD(data.flashLoans.stats.avgFlashSize)}</td>
+                  <td className="py-2 text-right text-text-secondary">{formatUSD(data.flashLoans.stats.avgNonFlashSize)}</td>
+                  <td className="py-2 text-right text-positive">
+                    {data.flashLoans.stats.avgNonFlashSize > 0
+                      ? `${((data.flashLoans.stats.avgFlashSize / data.flashLoans.stats.avgNonFlashSize - 1) * 100).toFixed(0)}%`
+                      : "—"}
+                  </td>
+                </tr>
+                <tr className="border-b border-card-border/50">
+                  <td className="py-2 text-text-secondary">Avg Profit Per Event</td>
+                  <td className="py-2 text-right font-medium text-accent">{formatUSD(data.flashLoans.stats.avgFlashProfit)}</td>
+                  <td className="py-2 text-right text-text-secondary">{formatUSD(data.flashLoans.stats.avgNonFlashProfit)}</td>
+                  <td className="py-2 text-right text-positive">
+                    {data.flashLoans.stats.avgNonFlashProfit > 0
+                      ? `${((data.flashLoans.stats.avgFlashProfit / data.flashLoans.stats.avgNonFlashProfit - 1) * 100).toFixed(0)}%`
+                      : "—"}
+                  </td>
+                </tr>
+                <tr className="border-b border-card-border/50">
+                  <td className="py-2 text-text-secondary">Avg Gas Cost</td>
+                  <td className="py-2 text-right font-medium text-accent">{formatUSD(data.flashLoans.stats.avgFlashGas)}</td>
+                  <td className="py-2 text-right text-text-secondary">{formatUSD(data.flashLoans.stats.avgNonFlashGas)}</td>
+                  <td className="py-2 text-right text-negative">
+                    {data.flashLoans.stats.avgNonFlashGas > 0
+                      ? `+${((data.flashLoans.stats.avgFlashGas / data.flashLoans.stats.avgNonFlashGas - 1) * 100).toFixed(0)}%`
+                      : "—"}
+                  </td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-text-secondary">Total Volume</td>
+                  <td className="py-2 text-right font-medium text-accent">{formatUSD(data.flashLoans.stats.flashVolume)}</td>
+                  <td className="py-2 text-right text-text-secondary">{formatUSD(data.flashLoans.stats.nonFlashVolume)}</td>
+                  <td className="py-2 text-right text-text-tertiary">
+                    {((data.flashLoans.stats.flashVolume / (data.flashLoans.stats.flashVolume + data.flashLoans.stats.nonFlashVolume)) * 100).toFixed(1)}% flash
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Top Flash Loan Liquidators */}
+          {data.flashLoans.topLiquidators.length > 0 && (
+            <div className="tui-card bg-card-bg border border-card-border rounded p-4">
+              <h3 className="text-xs font-medium text-text-secondary mb-3">
+                Top Flash Loan Liquidators
+              </h3>
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-text-tertiary border-b border-card-border">
+                    <th className="text-left pb-2 font-medium">#</th>
+                    <th className="text-left pb-2 font-medium">Address</th>
+                    <th className="text-right pb-2 font-medium">Flash Events</th>
+                    <th className="text-right pb-2 font-medium">Total Events</th>
+                    <th className="text-right pb-2 font-medium">Flash %</th>
+                    <th className="text-right pb-2 font-medium">Flash Volume</th>
+                    <th className="text-right pb-2 font-medium">Flash Profit</th>
+                    <th className="text-right pb-2 font-medium">Total Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.flashLoans.topLiquidators.map((l, i) => (
+                    <tr key={l.liquidator} className="border-b border-card-border/50 hover:bg-card-hover transition-colors">
+                      <td className="py-2 text-text-tertiary">{i + 1}</td>
+                      <td className="py-2">
+                        <Link
+                          href={`/liquidators/${l.liquidator}`}
+                          className="text-accent hover:underline font-mono text-[10px]"
+                        >
+                          {formatAddress(l.liquidator)}
+                        </Link>
+                      </td>
+                      <td className="py-2 text-right text-accent font-medium">{formatNumber(l.flashEvents)}</td>
+                      <td className="py-2 text-right text-text-secondary">{formatNumber(l.totalEvents)}</td>
+                      <td className="py-2 text-right text-text-secondary">
+                        {((l.flashEvents / l.totalEvents) * 100).toFixed(0)}%
+                      </td>
+                      <td className="py-2 text-right text-text-secondary">{formatUSD(l.flashVolume)}</td>
+                      <td className="py-2 text-right text-positive font-medium">{formatUSD(l.flashProfit)}</td>
+                      <td className="py-2 text-right text-text-secondary">{formatUSD(l.totalProfit)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Flash Loan Source Details */}
+          {data.flashLoans.bySource.length > 0 && (
+            <div className="tui-card bg-card-bg border border-card-border rounded p-4">
+              <h3 className="text-xs font-medium text-text-secondary mb-3">
+                Flash Loan Provider Breakdown
+              </h3>
+              <div className="grid grid-cols-5 gap-3">
+                {data.flashLoans.bySource.map((s) => (
+                  <div
+                    key={s.source}
+                    className="text-center p-3 rounded"
+                    style={{ background: `${FLASH_SOURCE_COLORS[s.source] || CHART_COLORS.accent}15` }}
+                  >
+                    <div
+                      className="text-[13px] font-semibold"
+                      style={{ color: FLASH_SOURCE_COLORS[s.source] || CHART_COLORS.accent }}
+                    >
+                      {FLASH_SOURCE_LABELS[s.source] || s.source}
+                    </div>
+                    <div className="text-[10px] text-text-tertiary mt-1">{formatNumber(s.eventCount)} events</div>
+                    <div className="text-[10px] text-text-secondary">{formatUSD(s.volume)} vol</div>
+                    <div className="text-[10px] text-positive">{formatUSD(s.profit)} profit</div>
+                    <div className="text-[9px] text-text-tertiary">{s.uniqueLiquidators} liquidators</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ──────────────────────────────────────────────────────────
+          Bad Debt Formation
+          ────────────────────────────────────────────────────────── */}
+      {tab === "badDebt" && data?.badDebt && data.badDebt.monthly.length > 0 && (() => {
+            // Pivot monthly data into one row per month with a column per protocol.
+            // Protocol colors come from CHART_COLORS so the chart reads the same
+            // as the other protocol-stacked views.
+            const protocols = Array.from(new Set(data.badDebt.monthly.map((r) => r.protocol)))
+            const monthMap: Record<string, Record<string, number>> = {}
+            for (const r of data.badDebt.monthly) {
+              if (!monthMap[r.month]) monthMap[r.month] = { month: r.month as any }
+              monthMap[r.month][r.protocol] = r.badDebt
+            }
+            const chartData = Object.keys(monthMap)
+              .sort()
+              .map((m) => ({ month: m, ...monthMap[m] }))
+
+            const totalBadDebt = data.badDebt.monthly.reduce((s, r) => s + r.badDebt, 0)
+            const totalEvents = data.badDebt.monthly.reduce((s, r) => s + r.events, 0)
+            const totalBorrowers = new Set(
+              data.badDebt.monthly.flatMap((r) => Array(r.borrowers).fill(0).map((_, i) => `${r.protocol}_${r.month}_${i}`))
+            ).size // rough — we don't have distinct borrowers across months
+
+            const worstMonth = Object.entries(monthMap)
+              .map(([m, row]) => ({ m, total: Object.entries(row).filter(([k]) => k !== "month").reduce((s, [, v]) => s + (v as number), 0) }))
+              .sort((a, b) => b.total - a.total)[0]
+
+            return (
+              <div className="mt-8 space-y-4">
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-sm font-semibold text-text-primary">
+                    🩸 Bad Debt Formation
+                  </h2>
+                  <span className="text-[10px] text-text-tertiary">
+                    When collateral seized {"<"} debt repaid · protocols absorb the loss
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-4 gap-4">
+                  <MetricCard
+                    label="Total Bad Debt"
+                    value={formatUSD(totalBadDebt)}
+                    sub="All time, all protocols"
+                    accent
+                  />
+                  <MetricCard
+                    label="Loss-bearing Events"
+                    value={formatNumber(totalEvents)}
+                    sub={`${((totalEvents / (data.netProfit.totalEvents || 1)) * 100).toFixed(2)}% of all liquidations`}
+                  />
+                  <MetricCard
+                    label="Worst Month"
+                    value={worstMonth ? formatUSD(worstMonth.total) : "—"}
+                    sub={worstMonth?.m || ""}
+                  />
+                  <MetricCard
+                    label="Protocols Affected"
+                    value={String(protocols.length)}
+                    sub="Distinct chains of pain"
+                  />
+                </div>
+
+                {/* Monthly stacked bar chart */}
+                <ChartWrapper title="Bad Debt by Protocol per Month" height={320}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} margin={{ top: 24, right: 12, bottom: 0, left: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
+                        interval="preserveStartEnd"
+                        minTickGap={40}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
+                        tickFormatter={(v) => `$${(v / 1e6).toFixed(1)}M`}
+                        width={65}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          background: "var(--tooltip-bg)",
+                          border: "1px solid var(--card-border)",
+                          borderRadius: 4,
+                          fontSize: 11,
+                        }}
+                        formatter={(v: any, n: any) => [formatUSD(Number(v)), protocolLabel(String(n))]}
+                      />
+                      {protocols.map((p) => (
+                        <Bar
+                          key={p}
+                          dataKey={p}
+                          stackId="a"
+                          fill={(CHART_COLORS as any)[p] || CHART_COLORS.negative}
+                        />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartWrapper>
+
+                {/* Bad debt by collateral asset + top events in a 2-col layout */}
+                <div className="grid grid-cols-2 gap-4">
+                  {/* By collateral asset */}
+                  <div className="tui-card bg-card-bg border border-card-border rounded overflow-hidden">
+                    <div className="px-3 py-2 border-b border-card-border">
+                      <h3 className="text-xs font-medium text-text-secondary">
+                        Bad Debt by Collateral Asset
+                      </h3>
+                    </div>
+                    <table className="w-full text-[11px]">
+                      <thead>
+                        <tr className="text-text-tertiary border-b border-card-border">
+                          <th className="text-left px-3 py-2 font-medium">Asset</th>
+                          <th className="text-right px-3 py-2 font-medium">Bad Debt</th>
+                          <th className="text-right px-3 py-2 font-medium">Events</th>
+                          <th className="text-right px-3 py-2 font-medium">Borrowers</th>
+                          <th className="text-right px-3 py-2 font-medium">Last</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.badDebt.byAsset.map((a) => (
+                          <tr
+                            key={a.collateralSymbol}
+                            className="border-b border-card-border/50 hover:bg-card-hover"
+                          >
+                            <td className="px-3 py-2 font-medium text-text-primary">
+                              {a.collateralSymbol}
+                            </td>
+                            <td className="px-3 py-2 text-right font-medium" style={{ color: "#FF4444" }}>
+                              {formatUSD(a.badDebt)}
+                            </td>
+                            <td className="px-3 py-2 text-right text-text-secondary">
+                              {formatNumber(a.events)}
+                            </td>
+                            <td className="px-3 py-2 text-right text-text-secondary">
+                              {formatNumber(a.borrowers)}
+                            </td>
+                            <td className="px-3 py-2 text-right text-text-tertiary">
+                              {a.latestTimestamp ? formatDate(a.latestTimestamp) : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Top bad debt events */}
+                  <div className="tui-card bg-card-bg border border-card-border rounded overflow-hidden">
+                    <div className="px-3 py-2 border-b border-card-border">
+                      <h3 className="text-xs font-medium text-text-secondary">
+                        Hall of Pain — Largest Single Bad-Debt Events
+                      </h3>
+                    </div>
+                    <table className="w-full text-[11px]">
+                      <thead>
+                        <tr className="text-text-tertiary border-b border-card-border">
+                          <th className="text-left px-3 py-2 font-medium">Date</th>
+                          <th className="text-left px-3 py-2 font-medium">Pair</th>
+                          <th className="text-left px-3 py-2 font-medium">Protocol</th>
+                          <th className="text-right px-3 py-2 font-medium">Bad Debt</th>
+                          <th className="text-center px-3 py-2 font-medium">Tx</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.badDebt.topEvents.slice(0, 10).map((e) => (
+                          <tr
+                            key={e.txHash}
+                            className="border-b border-card-border/50 hover:bg-card-hover"
+                          >
+                            <td className="px-3 py-2 text-text-secondary">
+                              {formatDate(e.blockTimestamp)}
+                            </td>
+                            <td className="px-3 py-2 text-text-primary">
+                              <span className="font-medium">{e.collateralSymbol}</span>
+                              <span className="text-text-tertiary mx-1">/</span>
+                              <span>{e.debtSymbol}</span>
+                            </td>
+                            <td className="px-3 py-2 text-text-tertiary">
+                              {protocolLabel(e.protocol)}
+                            </td>
+                            <td className="px-3 py-2 text-right font-medium" style={{ color: "#FF4444" }}>
+                              {formatUSD(e.badDebtUsd)}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <a
+                                href={etherscanTx(e.txHash)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-accent hover:underline"
+                                title={e.txHash}
+                              >
+                                ↗
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* ──────────────────────────────────────────────────────────
+              Funding Source Classification
+              ────────────────────────────────────────────────────────── */}
+          {tab === "funding" && data?.funding && data.funding.breakdown.length > 0 && (() => {
+            const breakdown = data.funding.breakdown
+            const total = breakdown.reduce((s, r) => s + r.events, 0)
+            const chartData = breakdown.map((r) => ({
+              name: FUNDING_CATEGORY_LABELS[r.category] || r.category,
+              value: r.events,
+              category: r.category,
+              pct: total > 0 ? (r.events / total) * 100 : 0,
+            }))
+            return (
+              <div className="mt-8 space-y-4">
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-sm font-semibold text-text-primary">
+                    💰 Liquidator Funding Sources
+                  </h2>
+                  <span className="text-[10px] text-text-tertiary">
+                    How bots source the debt asset to repay · {formatNumber(total)} events classified
+                  </span>
+                </div>
+
+                {/* Pie chart + per-category cards */}
+                <div className="grid grid-cols-12 gap-4">
+                  <div className="col-span-5">
+                    <ChartWrapper title="Share of Liquidations" height={320}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={chartData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={110}
+                            dataKey="value"
+                            labelLine={false}
+                            label={(e: any) =>
+                              e.pct >= 5 ? `${e.name} ${e.pct.toFixed(0)}%` : ""
+                            }
+                          >
+                            {chartData.map((e) => (
+                              <Cell
+                                key={e.category}
+                                fill={FUNDING_CATEGORY_COLORS[e.category] || CHART_COLORS.accent}
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            contentStyle={{
+                              background: "var(--tooltip-bg)",
+                              border: "1px solid var(--card-border)",
+                              borderRadius: 4,
+                              fontSize: 11,
+                            }}
+                            formatter={(v: any, _n: any, p: any) =>
+                              [`${formatNumber(Number(v))} events (${p.payload.pct.toFixed(1)}%)`, p.payload.name]
+                            }
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </ChartWrapper>
+                  </div>
+
+                  {/* Per-category KPI cards */}
+                  <div className="col-span-7 grid grid-cols-2 gap-3">
+                    {breakdown.map((r) => {
+                      const color = FUNDING_CATEGORY_COLORS[r.category] || CHART_COLORS.accent
+                      const pct = total > 0 ? (r.events / total) * 100 : 0
+                      return (
+                        <div
+                          key={r.category}
+                          className="tui-card rounded p-3 border"
+                          style={{
+                            background: `${color}10`,
+                            borderColor: `${color}40`,
+                          }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span
+                              className="text-[11px] font-semibold uppercase tracking-wider"
+                              style={{ color }}
+                            >
+                              {FUNDING_CATEGORY_LABELS[r.category] || r.category}
+                            </span>
+                            <span className="text-[10px] text-text-tertiary">
+                              {pct.toFixed(1)}%
+                            </span>
+                          </div>
+                          <div className="mt-1 text-lg font-semibold text-text-primary">
+                            {formatNumber(r.events)}
+                            <span className="text-[10px] text-text-tertiary ml-1 font-normal">events</span>
+                          </div>
+                          <div className="mt-1 grid grid-cols-3 gap-1 text-[10px]">
+                            <div>
+                              <div className="text-text-tertiary">Volume</div>
+                              <div className="text-text-secondary">{formatUSD(r.volume)}</div>
+                            </div>
+                            <div>
+                              <div className="text-text-tertiary">Profit</div>
+                              <div className="text-positive">{formatUSD(r.profit)}</div>
+                            </div>
+                            <div>
+                              <div className="text-text-tertiary">Bots</div>
+                              <div className="text-text-secondary">{formatNumber(r.liquidators)}</div>
+                            </div>
+                          </div>
+                          <div className="mt-2 text-[9px] text-text-tertiary leading-snug">
+                            {FUNDING_CATEGORY_DESCRIPTIONS[r.category]}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Average size / profit / gas comparison table */}
+                <div className="tui-card bg-card-bg border border-card-border rounded overflow-hidden">
+                  <div className="px-3 py-2 border-b border-card-border">
+                    <h3 className="text-xs font-medium text-text-secondary">
+                      Per-event Economics by Funding Type
+                    </h3>
+                  </div>
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="text-text-tertiary border-b border-card-border">
+                        <th className="text-left px-3 py-2 font-medium">Funding type</th>
+                        <th className="text-right px-3 py-2 font-medium">Events</th>
+                        <th className="text-right px-3 py-2 font-medium">Avg size</th>
+                        <th className="text-right px-3 py-2 font-medium">Avg profit</th>
+                        <th className="text-right px-3 py-2 font-medium">Avg gas</th>
+                        <th className="text-right px-3 py-2 font-medium">Net / event</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {breakdown.map((r) => {
+                        const color = FUNDING_CATEGORY_COLORS[r.category] || CHART_COLORS.accent
+                        const net = r.avgProfit - r.avgGas
+                        return (
+                          <tr
+                            key={r.category}
+                            className="border-b border-card-border/50 hover:bg-card-hover"
+                          >
+                            <td className="px-3 py-2.5">
+                              <span
+                                className="inline-flex items-center gap-1.5"
+                                style={{ color }}
+                              >
+                                <span
+                                  className="inline-block w-2 h-2 rounded-full"
+                                  style={{ background: color }}
+                                />
+                                {FUNDING_CATEGORY_LABELS[r.category] || r.category}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-text-secondary">
+                              {formatNumber(r.events)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-text-secondary">
+                              {formatUSD(r.avgSize)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-positive">
+                              {formatUSD(r.avgProfit)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-text-secondary">
+                              {r.avgGas > 0 ? formatUSD(r.avgGas) : "—"}
+                            </td>
+                            <td
+                              className="px-3 py-2.5 text-right font-medium"
+                              style={{ color: net >= 0 ? "var(--positive)" : "#FF4444" }}
+                            >
+                              {r.avgGas > 0 ? formatUSD(net) : "—"}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })()}
     </main>
   )
 }

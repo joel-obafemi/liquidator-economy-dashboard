@@ -163,6 +163,17 @@ async function scan() {
     console.log(`  Resuming at ${startIdx}, ${Object.keys(results).length} triplets checked so far`)
   }
 
+  // If RETRY_ERRORS is set, iterate ALL triplets from 0 but skip ones that
+  // already have a stored outcome. This recovers triplets that errored on
+  // a previous run without re-doing the ones that succeeded.
+  if (process.env.RETRY_ERRORS) {
+    startIdx = 0
+    const missing = triplets.filter(
+      (t) => !(`${t.liquidator}|${t.debtAsset}|${t.blockNumber}` in results)
+    ).length
+    console.log(`  RETRY_ERRORS: re-checking ${missing} triplets that previously errored`)
+  }
+
   let checked = 0
   let proven = 0
   let errors = 0
@@ -171,6 +182,10 @@ async function scan() {
   for (let i = startIdx; i < triplets.length; i++) {
     const t = triplets[i]
     const key = `${t.liquidator}|${t.debtAsset}|${t.blockNumber}`
+
+    // Skip triplets already successfully checked (RETRY_ERRORS mode, or
+    // accidental double-runs where we picked up mid-way).
+    if (key in results) continue
 
     // balance at block N-1
     const bal = await balanceOf(t.debtAsset, t.liquidator, t.blockNumber - 1)
@@ -188,8 +203,12 @@ async function scan() {
       checked++
     }
 
-    // Alchemy handles ~300 rps; 150ms ≈ 6.6 rps is well under the free limit.
-    await new Promise((r) => setTimeout(r, process.env.ALCHEMY_RPC_URL ? 150 : 400))
+    // Throttle: Alchemy's documented limit is 300 rps, but sustained bursts
+    // above ~10 rps start triggering 429s on the free tier. 300ms ≈ 3.3 rps
+    // keeps the error rate near zero across 10k+ sequential calls.
+    const throttleMs = Number(process.env.THROTTLE_MS) ||
+      (process.env.ALCHEMY_RPC_URL ? 300 : 400)
+    await new Promise((r) => setTimeout(r, throttleMs))
 
     if ((i + 1) % logEvery === 0) {
       fs.writeFileSync(

@@ -90,7 +90,8 @@ export async function GET(request: Request) {
       `SELECT id, protocol, tx_hash, log_index, block_number, block_timestamp,
               liquidator, borrower, collateral_asset, debt_asset,
               collateral_symbol, debt_symbol,
-              debt_amount_usd, collateral_amount_usd, gross_profit_usd
+              debt_amount_usd, collateral_amount_usd, gross_profit_usd,
+              is_flash_loan, flash_loan_source
        FROM liquidation_events ${where}
        ORDER BY ${safeSort} ${safeOrder}
        LIMIT $${limitParam} OFFSET $${offsetParam}`,
@@ -114,6 +115,8 @@ export async function GET(request: Request) {
         debtAmountUsd: Number(r.debt_amount_usd),
         collateralAmountUsd: Number(r.collateral_amount_usd),
         grossProfitUsd: Number(r.gross_profit_usd),
+        isFlashLoan: r.is_flash_loan || false,
+        flashLoanSource: r.flash_loan_source || null,
       })),
       total,
       page,

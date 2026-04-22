@@ -22,6 +22,8 @@ interface ExplorerData {
     collateralAmountUsd: number
     debtAmountUsd: number
     grossProfitUsd: number
+    isFlashLoan: boolean
+    flashLoanSource: string | null
   }>
   total: number
   page: number
@@ -174,7 +176,14 @@ export default function ExplorerPage() {
                   <td className="px-3 py-2">{formatUSD(e.collateralAmountUsd)}</td>
                   <td className="px-3 py-2">{formatUSD(e.debtAmountUsd)}</td>
                   <td className="px-3 py-2 text-positive font-medium">
-                    {formatUSD(e.grossProfitUsd)}
+                    <span className="inline-flex items-center gap-1">
+                      {formatUSD(e.grossProfitUsd)}
+                      {e.isFlashLoan && (
+                        <span className="text-[8px] px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-medium" title={`Flash loan via ${e.flashLoanSource || "unknown"}`}>
+                          ⚡
+                        </span>
+                      )}
+                    </span>
                   </td>
                   <td className="px-3 py-2">
                     <Link

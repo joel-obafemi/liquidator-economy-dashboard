@@ -391,6 +391,146 @@ export async function GET(request: Request) {
       ORDER BY sort_order ASC
     `)
 
+    // 13. Flash Loan Analysis
+    const flashLoanStats = await rawSql(`
+      SELECT
+        COUNT(*) FILTER (WHERE is_flash_loan = true)::int as flash_events,
+        COUNT(*) FILTER (WHERE is_flash_loan = false)::int as non_flash_events,
+        COUNT(DISTINCT liquidator) FILTER (WHERE is_flash_loan = true)::int as flash_liquidators,
+        COUNT(DISTINCT liquidator) FILTER (WHERE is_flash_loan = false)::int as non_flash_liquidators,
+        COALESCE(SUM(collateral_amount_usd) FILTER (WHERE is_flash_loan = true), 0) as flash_volume,
+        COALESCE(SUM(collateral_amount_usd) FILTER (WHERE is_flash_loan = false), 0) as non_flash_volume,
+        COALESCE(SUM(gross_profit_usd) FILTER (WHERE is_flash_loan = true), 0) as flash_profit,
+        COALESCE(SUM(gross_profit_usd) FILTER (WHERE is_flash_loan = false), 0) as non_flash_profit,
+        COALESCE(AVG(collateral_amount_usd) FILTER (WHERE is_flash_loan = true), 0) as avg_flash_size,
+        COALESCE(AVG(collateral_amount_usd) FILTER (WHERE is_flash_loan = false), 0) as avg_non_flash_size,
+        COALESCE(AVG(gross_profit_usd) FILTER (WHERE is_flash_loan = true), 0) as avg_flash_profit,
+        COALESCE(AVG(gross_profit_usd) FILTER (WHERE is_flash_loan = false), 0) as avg_non_flash_profit,
+        COALESCE(AVG(gas_cost_usd) FILTER (WHERE is_flash_loan = true AND gas_used IS NOT NULL), 0) as avg_flash_gas,
+        COALESCE(AVG(gas_cost_usd) FILTER (WHERE is_flash_loan = false AND gas_used IS NOT NULL), 0) as avg_non_flash_gas,
+        COUNT(*)::int as total_events
+      FROM liquidation_events
+      WHERE 1=1 ${protocolFilter}
+    `)
+
+    // Flash loan source breakdown
+    const flashBySource = await rawSql(`
+      SELECT
+        flash_loan_source as source,
+        COUNT(*)::int as event_count,
+        COUNT(DISTINCT liquidator)::int as unique_liquidators,
+        COALESCE(SUM(collateral_amount_usd), 0) as volume,
+        COALESCE(SUM(gross_profit_usd), 0) as profit
+      FROM liquidation_events
+      WHERE is_flash_loan = true ${protocolFilter}
+      GROUP BY flash_loan_source
+      ORDER BY event_count DESC
+    `)
+
+    // Flash loan usage over time (monthly)
+    const flashMonthly = await rawSql(`
+      SELECT
+        TO_CHAR(TO_TIMESTAMP(block_timestamp), 'YYYY-MM') as month,
+        COUNT(*) FILTER (WHERE is_flash_loan = true)::int as flash_count,
+        COUNT(*) FILTER (WHERE is_flash_loan = false)::int as non_flash_count,
+        COALESCE(SUM(collateral_amount_usd) FILTER (WHERE is_flash_loan = true), 0) as flash_volume,
+        COALESCE(SUM(collateral_amount_usd) FILTER (WHERE is_flash_loan = false), 0) as non_flash_volume
+      FROM liquidation_events
+      WHERE 1=1 ${protocolFilter}
+      GROUP BY month
+      ORDER BY month ASC
+    `)
+
+    // Top flash loan liquidators
+    const topFlashLiquidators = await rawSql(`
+      SELECT
+        liquidator,
+        COUNT(*) FILTER (WHERE is_flash_loan = true)::int as flash_events,
+        COUNT(*)::int as total_events,
+        COALESCE(SUM(collateral_amount_usd) FILTER (WHERE is_flash_loan = true), 0) as flash_volume,
+        COALESCE(SUM(gross_profit_usd) FILTER (WHERE is_flash_loan = true), 0) as flash_profit,
+        COALESCE(SUM(gross_profit_usd), 0) as total_profit
+      FROM liquidation_events
+      WHERE 1=1 ${protocolFilter}
+      GROUP BY liquidator
+      HAVING COUNT(*) FILTER (WHERE is_flash_loan = true) > 0
+      ORDER BY flash_profit DESC
+      LIMIT 15
+    `)
+
+    // 14a. Bad debt formation over time — one row per month per protocol.
+    // This captures events where the seized collateral was worth less than the
+    // debt repaid (liquidator took a loss, protocol ate the shortfall).
+    const badDebtMonthly = await rawSql(`
+      SELECT
+        TO_CHAR(TO_TIMESTAMP(block_timestamp), 'YYYY-MM') as month,
+        protocol,
+        COUNT(*) FILTER (WHERE bad_debt_usd > 0)::int as events,
+        COALESCE(SUM(bad_debt_usd) FILTER (WHERE bad_debt_usd > 0), 0) as bad_debt,
+        COUNT(DISTINCT borrower) FILTER (WHERE bad_debt_usd > 0)::int as borrowers
+      FROM liquidation_events
+      WHERE 1=1 ${protocolFilter}
+      GROUP BY month, protocol
+      HAVING COUNT(*) FILTER (WHERE bad_debt_usd > 0) > 0
+      ORDER BY month ASC, protocol ASC
+    `)
+
+    // 14b. Top bad debt events (for the "hall of pain" table)
+    const topBadDebt = await rawSql(`
+      SELECT
+        tx_hash, block_number, block_timestamp, protocol,
+        collateral_symbol, debt_symbol, borrower, liquidator,
+        bad_debt_usd, collateral_amount_usd, debt_amount_usd
+      FROM liquidation_events
+      WHERE bad_debt_usd > 0 ${protocolFilter}
+      ORDER BY bad_debt_usd DESC
+      LIMIT 20
+    `)
+
+    // 14c. Bad debt by collateral asset — which assets caused the most pain
+    const badDebtByAsset = await rawSql(`
+      SELECT
+        collateral_symbol,
+        COUNT(*) FILTER (WHERE bad_debt_usd > 0)::int as events,
+        COALESCE(SUM(bad_debt_usd) FILTER (WHERE bad_debt_usd > 0), 0) as bad_debt,
+        COUNT(DISTINCT borrower) FILTER (WHERE bad_debt_usd > 0)::int as borrowers,
+        MAX(block_timestamp) FILTER (WHERE bad_debt_usd > 0) as latest_ts
+      FROM liquidation_events
+      WHERE bad_debt_usd > 0 ${protocolFilter}
+      GROUP BY collateral_symbol
+      ORDER BY bad_debt DESC
+      LIMIT 15
+    `)
+
+    // 15. Funding source classification (flash_loan / dex_swap / pre_funded / aggregator / unknown)
+    const fundingBreakdown = await rawSql(`
+      SELECT
+        COALESCE(funding_category, 'unclassified') as category,
+        COUNT(*)::int as events,
+        COUNT(DISTINCT liquidator)::int as liquidators,
+        COALESCE(SUM(collateral_amount_usd), 0) as volume,
+        COALESCE(SUM(gross_profit_usd), 0) as profit,
+        COALESCE(AVG(collateral_amount_usd), 0) as avg_size,
+        COALESCE(AVG(gross_profit_usd), 0) as avg_profit,
+        COALESCE(AVG(gas_cost_usd) FILTER (WHERE gas_used IS NOT NULL), 0) as avg_gas
+      FROM liquidation_events
+      WHERE 1=1 ${protocolFilter}
+      GROUP BY funding_category
+      ORDER BY events DESC
+    `)
+
+    // Monthly funding breakdown for trend view
+    const fundingMonthly = await rawSql(`
+      SELECT
+        TO_CHAR(TO_TIMESTAMP(block_timestamp), 'YYYY-MM') as month,
+        COALESCE(funding_category, 'unclassified') as category,
+        COUNT(*)::int as events
+      FROM liquidation_events
+      WHERE 1=1 ${protocolFilter}
+      GROUP BY month, funding_category
+      ORDER BY month ASC, events DESC
+    `)
+
     // 8. Liquidation bonus efficiency by asset
     const bonusEfficiency = await rawSql(`
       SELECT
@@ -525,6 +665,93 @@ export async function GET(request: Request) {
         uniqueLiquidators: Number(r.unique_liquidators),
         avgBonusPct: Number(r.avg_bonus_pct),
       })),
+      flashLoans: {
+        stats: {
+          flashEvents: Number(flashLoanStats[0]?.flash_events || 0),
+          nonFlashEvents: Number(flashLoanStats[0]?.non_flash_events || 0),
+          flashLiquidators: Number(flashLoanStats[0]?.flash_liquidators || 0),
+          nonFlashLiquidators: Number(flashLoanStats[0]?.non_flash_liquidators || 0),
+          flashVolume: Number(flashLoanStats[0]?.flash_volume || 0),
+          nonFlashVolume: Number(flashLoanStats[0]?.non_flash_volume || 0),
+          flashProfit: Number(flashLoanStats[0]?.flash_profit || 0),
+          nonFlashProfit: Number(flashLoanStats[0]?.non_flash_profit || 0),
+          avgFlashSize: Number(flashLoanStats[0]?.avg_flash_size || 0),
+          avgNonFlashSize: Number(flashLoanStats[0]?.avg_non_flash_size || 0),
+          avgFlashProfit: Number(flashLoanStats[0]?.avg_flash_profit || 0),
+          avgNonFlashProfit: Number(flashLoanStats[0]?.avg_non_flash_profit || 0),
+          avgFlashGas: Number(flashLoanStats[0]?.avg_flash_gas || 0),
+          avgNonFlashGas: Number(flashLoanStats[0]?.avg_non_flash_gas || 0),
+          totalEvents: Number(flashLoanStats[0]?.total_events || 0),
+        },
+        bySource: flashBySource.map((r: any) => ({
+          source: r.source,
+          eventCount: Number(r.event_count),
+          uniqueLiquidators: Number(r.unique_liquidators),
+          volume: Number(r.volume),
+          profit: Number(r.profit),
+        })),
+        monthly: flashMonthly.map((r: any) => ({
+          month: r.month,
+          flashCount: Number(r.flash_count),
+          nonFlashCount: Number(r.non_flash_count),
+          flashVolume: Number(r.flash_volume),
+          nonFlashVolume: Number(r.non_flash_volume),
+        })),
+        topLiquidators: topFlashLiquidators.map((r: any) => ({
+          liquidator: r.liquidator,
+          flashEvents: Number(r.flash_events),
+          totalEvents: Number(r.total_events),
+          flashVolume: Number(r.flash_volume),
+          flashProfit: Number(r.flash_profit),
+          totalProfit: Number(r.total_profit),
+        })),
+      },
+      badDebt: {
+        monthly: badDebtMonthly.map((r: any) => ({
+          month: r.month,
+          protocol: r.protocol,
+          events: Number(r.events),
+          badDebt: Number(r.bad_debt),
+          borrowers: Number(r.borrowers),
+        })),
+        topEvents: topBadDebt.map((r: any) => ({
+          txHash: r.tx_hash,
+          blockNumber: Number(r.block_number),
+          blockTimestamp: Number(r.block_timestamp),
+          protocol: r.protocol,
+          collateralSymbol: r.collateral_symbol,
+          debtSymbol: r.debt_symbol,
+          borrower: r.borrower,
+          liquidator: r.liquidator,
+          badDebtUsd: Number(r.bad_debt_usd),
+          collateralAmountUsd: Number(r.collateral_amount_usd),
+          debtAmountUsd: Number(r.debt_amount_usd),
+        })),
+        byAsset: badDebtByAsset.map((r: any) => ({
+          collateralSymbol: r.collateral_symbol,
+          events: Number(r.events),
+          badDebt: Number(r.bad_debt),
+          borrowers: Number(r.borrowers),
+          latestTimestamp: r.latest_ts ? Number(r.latest_ts) : null,
+        })),
+      },
+      funding: {
+        breakdown: fundingBreakdown.map((r: any) => ({
+          category: r.category,
+          events: Number(r.events),
+          liquidators: Number(r.liquidators),
+          volume: Number(r.volume),
+          profit: Number(r.profit),
+          avgSize: Number(r.avg_size),
+          avgProfit: Number(r.avg_profit),
+          avgGas: Number(r.avg_gas),
+        })),
+        monthly: fundingMonthly.map((r: any) => ({
+          month: r.month,
+          category: r.category,
+          events: Number(r.events),
+        })),
+      },
     })
   } catch (e: any) {
     console.error("Insights API error:", e)

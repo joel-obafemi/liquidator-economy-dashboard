@@ -31,3 +31,12 @@ Thumbs.db
 next-env.d.ts
 
 .vercel
+
+# Local scan state & analysis scratch files
+.claude/
+.flash-tx-hashes.json
+.flash-results.json
+.flash-extended-phaseA.json
+.flash-extended-phaseB.json
+.funding-source-results.json
+.pre-funded-results.json

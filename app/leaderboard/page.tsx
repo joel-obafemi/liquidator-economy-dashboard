@@ -18,6 +18,7 @@ interface LeaderboardData {
     profitShare: number
     lastActive: number
     protocols: string[]
+    flashLoanCount: number
   }>
   total: number
   page: number
@@ -118,8 +119,15 @@ export default function LeaderboardPage() {
                 >
                   <td className="px-3 py-2 text-text-tertiary">{l.rank}</td>
                   <td className="px-3 py-2 text-left">
-                    <span className="text-accent group-hover:underline font-mono">
-                      {formatAddr(l.liquidator)}
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="text-accent group-hover:underline font-mono">
+                        {formatAddr(l.liquidator)}
+                      </span>
+                      {l.flashLoanCount > 0 && (
+                        <span className="text-[8px] px-1 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-medium" title={`${l.flashLoanCount} flash loan events`}>
+                          ⚡ {l.flashLoanCount}
+                        </span>
+                      )}
                     </span>
                   </td>
                   <td className="px-3 py-2 text-right">{formatNumber(l.liquidationCount)}</td>
