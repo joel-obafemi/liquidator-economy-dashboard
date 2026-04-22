@@ -35,17 +35,30 @@ if (fs.existsSync(envPath)) {
 
 const dbUrl = process.env.DATABASE_URL!.replace(/&?channel_binding=[^&]*/g, "")
 const RESULT_FILE = path.resolve(__dirname, "../.funding-source-results.json")
+const RESCAN_RESULT_FILE = path.resolve(__dirname, "../.funding-rescan-results.json")
 
 // DEX swap event topics (lowercase hex, no 0x — for substring matching)
-const SWAP_TOPICS = {
+const SWAP_TOPICS: Record<string, string> = {
   uniswap_v2: "d78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822",
   uniswap_v3: "c42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67",
+  uniswap_v4: "40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f",
   curve_v1: "8b3e96f2b889fa771c53c981b40daf005f63f637f1869f707052d15a3dd97140",
+  curve_v1_underlying: "b2e76ae99761dc136e598d4a629bb347eccb9532a5f8bbd72e18467c3c34cc98",
   balancer_v2_swap: "2170c741c41531aec20e7c107c24eecfdd15e69c9bb0a8dd37b1840b9e0b207b",
+}
+
+// DEX contract addresses — catch swaps even when the specific topic0 isn't
+// among the ones above (e.g. when a DEX is routed via a router that emits its
+// own wrapper event). Lowercase, no 0x.
+const DEX_ADDRESSES: Record<string, string> = {
+  uniswap_v4_pool_manager: "000000000004444c5dc75cb358380d2e3de08a90",
+  balancer_v3_vault: "bbbbbbb520d69a9775e85b458c58c648259fad5f",
+  curve_3pool: "bebc44782c7db0a1a60cb6fe97d0b483032ff1c7",
 }
 
 // Aggregator router addresses (lowercase, no 0x)
 const AGGREGATORS: Record<string, string> = {
+  oneinch_v6: "111111125421ca6dc452d289314280a0f8842a65",
   oneinch_v5: "1111111254eeb25477b68fb85ed929f73a960582",
   oneinch_v4: "1111111254fb6c44bac0bed2854e76f90643097d",
   zerox: "def1c0ded9bec7f1a1670819833240f027b25eff",
@@ -62,10 +75,15 @@ let ri = 0
 
 /** Categorize a receipt by funding source. */
 function categorize(text: string): { category: string; detail: string | null } {
-  // Check for swap events first
+  // Check for swap events first (topic match)
   const foundSwaps: string[] = []
   for (const [name, topic] of Object.entries(SWAP_TOPICS)) {
     if (text.includes(topic)) foundSwaps.push(name)
+  }
+  // Also check for DEX contract addresses (catches routers/pools whose topics
+  // we haven't enumerated)
+  for (const [name, addr] of Object.entries(DEX_ADDRESSES)) {
+    if (text.includes(addr)) foundSwaps.push(name)
   }
   if (foundSwaps.length > 0) {
     return { category: "dex_swap", detail: foundSwaps.join(",") }
@@ -130,25 +148,32 @@ async function schema() {
   await pool.end()
 }
 
-async function scan() {
-  console.log("=== Scanning non-flash txs for DEX / aggregator funding ===\n")
+async function scan(options: { rescanUnknown?: boolean } = {}) {
+  const label = options.rescanUnknown
+    ? "Re-scanning 'unknown' txs with expanded signatures"
+    : "Scanning non-flash txs for DEX / aggregator funding"
+  console.log(`=== ${label} ===\n`)
   const pool = new Pool({ connectionString: dbUrl })
 
-  // Only scan txs that don't already have a funding_category set
+  // Target either never-classified txs (default) or currently-"unknown" txs
+  // (when rescanUnknown is true — used to pick up newly-added signatures).
+  const whereClause = options.rescanUnknown
+    ? "funding_category = 'unknown'"
+    : "(is_flash_loan = false OR is_flash_loan IS NULL) AND funding_category IS NULL"
   const r = await pool.query(
     `SELECT DISTINCT tx_hash FROM liquidation_events
-     WHERE (is_flash_loan = false OR is_flash_loan IS NULL)
-       AND funding_category IS NULL
+     WHERE ${whereClause}
      ORDER BY tx_hash`
   )
   const hashes: string[] = r.rows.map((row: any) => row.tx_hash)
   await pool.end()
-  console.log(`  ${hashes.length} non-flash txs to categorize`)
+  console.log(`  ${hashes.length} txs to categorize`)
 
+  const resultFile = options.rescanUnknown ? RESCAN_RESULT_FILE : RESULT_FILE
   let categoryMap: Record<string, { category: string; detail: string | null }> = {}
   let startIdx = 0
-  if (fs.existsSync(RESULT_FILE)) {
-    const prev = JSON.parse(fs.readFileSync(RESULT_FILE, "utf8"))
+  if (fs.existsSync(resultFile)) {
+    const prev = JSON.parse(fs.readFileSync(resultFile, "utf8"))
     categoryMap = prev.categoryMap || {}
     startIdx = prev.lastIndex || 0
     console.log(`  Resuming at ${startIdx}, ${Object.keys(categoryMap).length} categorized so far`)
@@ -157,6 +182,9 @@ async function scan() {
   let checked = 0
   let errors = 0
   const counts: Record<string, number> = {}
+
+  // Alchemy handles bursts; keep a tight but polite throttle.
+  const throttleMs = process.env.ALCHEMY_RPC_URL ? 300 : 650
 
   for (let i = startIdx; i < hashes.length; i++) {
     const tx = hashes[i]
@@ -169,11 +197,11 @@ async function scan() {
       counts[result.category] = (counts[result.category] || 0) + 1
       checked++
     }
-    await new Promise((r) => setTimeout(r, 650))
+    await new Promise((r) => setTimeout(r, throttleMs))
 
     if ((i + 1) % 100 === 0) {
       fs.writeFileSync(
-        RESULT_FILE,
+        resultFile,
         JSON.stringify({ categoryMap, lastIndex: i + 1, checked, errors })
       )
       const summary = Object.entries(counts)
@@ -184,7 +212,7 @@ async function scan() {
   }
 
   fs.writeFileSync(
-    RESULT_FILE,
+    resultFile,
     JSON.stringify({ categoryMap, lastIndex: hashes.length, checked, errors })
   )
 
@@ -196,24 +224,33 @@ async function scan() {
   }
 }
 
-async function update() {
+async function update(options: { rescanUnknown?: boolean } = {}) {
   console.log("=== Apply funding category results to DB ===\n")
-  if (!fs.existsSync(RESULT_FILE)) {
-    console.error("No results file found")
+  const sourceFile = options.rescanUnknown ? RESCAN_RESULT_FILE : RESULT_FILE
+  if (!fs.existsSync(sourceFile)) {
+    console.error(`No results file found at ${sourceFile}`)
     process.exit(1)
   }
-  const { categoryMap } = JSON.parse(fs.readFileSync(RESULT_FILE, "utf8"))
+  const { categoryMap } = JSON.parse(fs.readFileSync(sourceFile, "utf8"))
   const entries = Object.entries(categoryMap) as [string, { category: string; detail: string | null }][]
   console.log(`  ${entries.length} txs to categorize`)
 
   const pool = new Pool({ connectionString: dbUrl })
 
   let updated = 0
+  // In rescan mode, overwrite existing 'unknown' rows with the new result.
+  // In normal mode, only fill in rows that have no category yet.
+  const whereClause = options.rescanUnknown
+    ? "WHERE tx_hash = $3 AND funding_category = 'unknown'"
+    : "WHERE tx_hash = $3 AND funding_category IS NULL"
+
   for (const [tx, result] of entries) {
+    // In rescan mode, skip entries that are still "unknown" — no change to apply.
+    if (options.rescanUnknown && result.category === "unknown") continue
     const r = await pool.query(
       `UPDATE liquidation_events
        SET funding_category = $1, funding_detail = $2
-       WHERE tx_hash = $3 AND funding_category IS NULL`,
+       ${whereClause}`,
       [result.category, result.detail, tx]
     )
     updated += r.rowCount || 0
@@ -255,11 +292,15 @@ async function main() {
   if (arg === "schema") await schema()
   else if (arg === "scan") await scan()
   else if (arg === "update") await update()
+  else if (arg === "rescan") await scan({ rescanUnknown: true })
+  else if (arg === "rescan-update") await update({ rescanUnknown: true })
   else {
-    console.log("Usage: detect-funding-source.ts [schema|scan|update]")
-    console.log("  schema — add funding_category column + backfill flash_loan rows")
-    console.log("  scan   — fetch receipts for non-flash txs, save categorization")
-    console.log("  update — apply categorization to DB")
+    console.log("Usage: detect-funding-source.ts [schema|scan|update|rescan|rescan-update]")
+    console.log("  schema         — add funding_category column + backfill flash_loan rows")
+    console.log("  scan           — fetch receipts for new txs, save categorization")
+    console.log("  update         — apply categorization to DB")
+    console.log("  rescan         — re-scan currently-'unknown' txs with expanded signatures")
+    console.log("  rescan-update  — apply rescan results (upgrades 'unknown' → specific category)")
     process.exit(1)
   }
 }
