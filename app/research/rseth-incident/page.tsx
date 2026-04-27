@@ -22,6 +22,9 @@ import {
   ResponsiveContainer,
   ReferenceArea,
   Cell,
+  ComposedChart,
+  Area,
+  Line,
 } from "recharts"
 
 interface RsethData {
@@ -91,6 +94,15 @@ interface RsethData {
     events: number
     borrowers: number
     volume: number
+  }>
+  hourlySnapshots: Array<{
+    timestamp: number
+    blockNumber: number
+    totalCollateralUsd: number
+    totalDebtUsd: number
+    badDebtUsd: number
+    underwaterUsers: number
+    activeUsers: number
   }>
 }
 
@@ -295,6 +307,174 @@ export default function RsethIncidentPage() {
         </ChartWrapper>
       )}
 
+      {/* Hourly bad-debt formation curve (Aave V3 rsETH-collateral users) */}
+      {data && data.hourlySnapshots && data.hourlySnapshots.length > 0 && (() => {
+        const series = data.hourlySnapshots.map((s) => ({
+          ts: s.timestamp,
+          dt: new Date(s.timestamp * 1000).toISOString().slice(5, 16).replace("T", " "),
+          collateral: s.totalCollateralUsd,
+          debt: s.totalDebtUsd,
+          badDebt: s.badDebtUsd,
+          underwater: s.underwaterUsers,
+          active: s.activeUsers,
+        }))
+        const peakBadDebt = series.reduce(
+          (m, r) => (r.badDebt > m ? r.badDebt : m),
+          0
+        )
+        const peakUnderwater = series.reduce(
+          (m, r) => (r.underwater > m ? r.underwater : m),
+          0
+        )
+        const eventStartLabel = "04-18 00:00"
+        const eventEndLabel = "04-25 23:00"
+
+        return (
+          <div className="space-y-3">
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold text-text-primary">
+                📉 Hourly Bad-Debt Formation — Aave V3 rsETH Positions
+              </h2>
+              <span className="text-[10px] text-text-tertiary">
+                Per-user state via{" "}
+                <code className="text-accent">getUserAccountData</code> · Alchemy archive ·{" "}
+                {data.hourlySnapshots.length} hourly snapshots
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <MetricCard
+                label="Peak bad debt"
+                value={formatUSD(peakBadDebt)}
+                sub="Sum of (debt − collateral) across underwater positions"
+                accent={peakBadDebt > 0}
+              />
+              <MetricCard
+                label="Peak underwater users"
+                value={String(peakUnderwater)}
+                sub="Hourly maximum across the analysis window"
+              />
+              <MetricCard
+                label="Active rsETH-collateral users"
+                value={String(series[series.length - 1]?.active || 0)}
+                sub="As of last snapshot"
+              />
+            </div>
+
+            <ChartWrapper title="Collateral, Debt & Bad-Debt Curve" height={340}>
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart
+                  data={series}
+                  margin={{ top: 24, right: 16, bottom: 0, left: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" />
+                  <XAxis
+                    dataKey="dt"
+                    tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
+                    interval="preserveStartEnd"
+                    minTickGap={50}
+                  />
+                  <YAxis
+                    yAxisId="usd"
+                    tick={{ fontSize: 10, fill: "var(--text-tertiary)" }}
+                    tickFormatter={(v) => `$${(v / 1e6).toFixed(1)}M`}
+                    width={65}
+                  />
+                  <YAxis
+                    yAxisId="users"
+                    orientation="right"
+                    tick={{ fontSize: 10, fill: "#FF4444" }}
+                    width={45}
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--tooltip-bg)",
+                      border: "1px solid var(--card-border)",
+                      borderRadius: 4,
+                      fontSize: 11,
+                    }}
+                    formatter={(v: any, n: any) => {
+                      if (n === "underwater")
+                        return [`${v} positions`, "Underwater users"]
+                      return [formatUSD(Number(v)), n]
+                    }}
+                  />
+                  <ReferenceArea
+                    x1={eventStartLabel}
+                    x2={eventEndLabel}
+                    yAxisId="usd"
+                    fill="rgba(255, 68, 68, 0.06)"
+                    stroke="rgba(255, 68, 68, 0.3)"
+                    strokeDasharray="3 3"
+                  />
+                  <Area
+                    yAxisId="usd"
+                    name="Collateral"
+                    dataKey="collateral"
+                    stroke="#5B7FFF"
+                    fill="#5B7FFF"
+                    fillOpacity={0.15}
+                    strokeWidth={1.5}
+                    dot={false}
+                  />
+                  <Area
+                    yAxisId="usd"
+                    name="Debt"
+                    dataKey="debt"
+                    stroke="#FF6B35"
+                    fill="#FF6B35"
+                    fillOpacity={0.18}
+                    strokeWidth={1.5}
+                    dot={false}
+                  />
+                  <Area
+                    yAxisId="usd"
+                    name="Bad debt"
+                    dataKey="badDebt"
+                    stroke="#FF4444"
+                    fill="#FF4444"
+                    fillOpacity={0.45}
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    yAxisId="users"
+                    name="underwater"
+                    dataKey="underwater"
+                    stroke="#FF4444"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 2"
+                    dot={false}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </ChartWrapper>
+
+            <div
+              className="tui-card rounded p-3 text-[10px] leading-relaxed"
+              style={{
+                background: "rgba(91, 127, 255, 0.05)",
+                border: "1px solid rgba(91, 127, 255, 0.2)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <span className="font-semibold text-text-primary">How this is computed: </span>
+              for each hour in the analysis window, every address that has ever held
+              aRsETH on Aave V3 mainnet is queried via{" "}
+              <code className="text-accent">Pool.getUserAccountData(user)</code> at the
+              corresponding archive block. The aggregate plotted is the sum of
+              <span style={{ color: "#5B7FFF" }}> total collateral</span>,
+              <span style={{ color: "#FF6B35" }}> total debt</span>, and the residual{" "}
+              <span style={{ color: "#FF4444" }}>bad debt</span> = max(0, debt − collateral)
+              for any user where debt exceeds collateral. Counts the number of
+              underwater users on the right axis. The shaded red region is the depeg
+              event window (Apr 18 – 25).
+            </div>
+          </div>
+        )
+      })()}
+
       {/* "Who showed up" — top historical liquidators × event window activity */}
       {loading && !data ? (
         <SkeletonTable
@@ -476,11 +656,6 @@ export default function RsethIncidentPage() {
           <h3 className="text-xs font-semibold text-text-primary mb-1">What's missing</h3>
           <ul className="text-text-secondary list-disc ml-5 space-y-1">
             <li>
-              <strong>Hourly bad-debt formation curve</strong> — requires querying Aave
-              V3 user account state at hourly block heights during the event window.
-              Planned as a follow-up using <code>getUserAccountData</code> via Alchemy.
-            </li>
-            <li>
               <strong>Failed/reverted liquidation attempts</strong> — would prove "bots
               tried but couldn't" rather than "bots didn't try." Requires failed-tx
               archives or Flashbots data.
@@ -488,6 +663,11 @@ export default function RsethIncidentPage() {
             <li>
               <strong>Oracle vs market price gap</strong> — needs Chainlink rsETH
               oracle reads paired with rsETH/ETH DEX VWAP across the event window.
+            </li>
+            <li>
+              <strong>Cross-protocol bad-debt aggregation</strong> — current curve
+              covers Aave V3 only. Morpho Blue and Spark would need their own
+              user-state probes.
             </li>
           </ul>
         </div>

@@ -159,6 +159,42 @@ export async function GET() {
        FROM scan_state ORDER BY scanner_name`
     )
 
+    // 7b. Hourly bad-debt formation curve (Aave V3, rsETH-collateral users).
+    // Empty array if the snapshot table doesn't exist or hasn't been populated.
+    let hourlySnapshots: Array<{
+      timestamp: number
+      blockNumber: number
+      totalCollateralUsd: number
+      totalDebtUsd: number
+      badDebtUsd: number
+      underwaterUsers: number
+      activeUsers: number
+    }> = []
+    try {
+      const snaps = await rawSql(
+        `SELECT block_timestamp::bigint as ts, block_number::bigint as block,
+                total_collateral_usd, total_debt_usd, bad_debt_usd,
+                underwater_users, active_users
+         FROM rseth_hourly_snapshots
+         ORDER BY block_timestamp ASC`
+      )
+      hourlySnapshots = snaps.map((r: any) => ({
+        timestamp: Number(r.ts),
+        blockNumber: Number(r.block),
+        totalCollateralUsd: Number(r.total_collateral_usd),
+        totalDebtUsd: Number(r.total_debt_usd),
+        badDebtUsd: Number(r.bad_debt_usd),
+        underwaterUsers: Number(r.underwater_users),
+        activeUsers: Number(r.active_users),
+      }))
+    } catch (e: any) {
+      // table may not exist yet on fresh installs
+      console.warn(
+        "rseth_hourly_snapshots not available:",
+        e?.message?.slice(0, 100)
+      )
+    }
+
     // 8. Sanity: ANY liquidations during event window across all protocols
     // (so we can show "rsETH had 0 while the rest of the system processed N").
     const allDuringWindow = await rawSql(
@@ -246,6 +282,7 @@ export async function GET() {
         borrowers: Number(r.borrowers),
         volume: Number(r.volume),
       })),
+      hourlySnapshots,
     })
   } catch (e: any) {
     console.error("rsETH research API error:", e)

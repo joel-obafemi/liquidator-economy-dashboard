@@ -42,5 +42,7 @@ next-env.d.ts
 .funding-rescan-results.json
 .pre-funded-results.json
 .recon-unknown.json
+.rseth-snapshot-scratch.json
+.failed-rseth-scratch.json
 
 .vercel
