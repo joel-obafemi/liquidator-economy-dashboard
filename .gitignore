@@ -39,4 +39,8 @@ next-env.d.ts
 .flash-extended-phaseA.json
 .flash-extended-phaseB.json
 .funding-source-results.json
+.funding-rescan-results.json
 .pre-funded-results.json
+.recon-unknown.json
+
+.vercel
