@@ -234,13 +234,42 @@ export async function GET() {
         firstTimestamp: baseline[0]?.first_ts ? Number(baseline[0].first_ts) : null,
         lastTimestamp: baseline[0]?.last_ts ? Number(baseline[0].last_ts) : null,
       },
-      timeline: timeline.map((r: any) => ({
-        day: r.day,
-        events: Number(r.events),
-        volume: Number(r.volume),
-        profit: Number(r.profit),
-        badDebt: Number(r.bad_debt),
-      })),
+      timeline: (() => {
+        // Backfill every day in the timeline window so the chart renders a
+        // visually correct sparse-but-complete bar series. Without this,
+        // Recharts auto-sizes the single populated bar to fill the X-axis.
+        const byDay = new Map<string, any>()
+        for (const r of timeline as any[]) {
+          byDay.set(r.day, {
+            day: r.day,
+            events: Number(r.events),
+            volume: Number(r.volume),
+            profit: Number(r.profit),
+            badDebt: Number(r.bad_debt),
+          })
+        }
+        const out: Array<{
+          day: string
+          events: number
+          volume: number
+          profit: number
+          badDebt: number
+        }> = []
+        const oneDay = 86400
+        for (let t = tlStart; t <= tlEnd; t += oneDay) {
+          const day = new Date(t * 1000).toISOString().slice(0, 10)
+          out.push(
+            byDay.get(day) ?? {
+              day,
+              events: 0,
+              volume: 0,
+              profit: 0,
+              badDebt: 0,
+            }
+          )
+        }
+        return out
+      })(),
       byPair: byPair.map((r: any) => ({
         protocol: r.protocol,
         collateralSymbol: r.collateral_symbol,
