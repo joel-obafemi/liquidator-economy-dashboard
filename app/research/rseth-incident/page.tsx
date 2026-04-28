@@ -227,20 +227,38 @@ export default function RsethIncidentPage() {
           border: "1px solid rgba(255, 68, 68, 0.25)",
         }}
       >
-        <div className="text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-          <span className="font-semibold" style={{ color: "#FF4444" }}>
-            The finding:{" "}
-          </span>
-          rsETH had a depeg-driven week of theoretical maximum liquidation demand and the
-          system absorbed{" "}
-          <span className="font-medium text-text-primary">{ew?.events ?? 0}</span>{" "}
-          on-chain liquidations of the asset. The same week, the broader Aave/Spark/Morpho/Fluid
-          system processed{" "}
-          <span className="font-medium text-text-primary">
-            {formatNumber(totalEventWindowSystemwide || 0)}
-          </span>{" "}
-          liquidations on other assets. The asset wasn't out of trouble — it was out of
-          economic viability for liquidators.
+        <div className="text-[11px] leading-relaxed space-y-2" style={{ color: "var(--text-secondary)" }}>
+          <div>
+            <span className="font-semibold" style={{ color: "#FF4444" }}>
+              The finding:{" "}
+            </span>
+            rsETH had a week of theoretical maximum liquidation demand following a
+            cross-chain bridge exploit and 15% depeg, and Aave / Spark / Morpho /
+            Fluid absorbed{" "}
+            <span className="font-medium text-text-primary">{ew?.events ?? 0}</span>{" "}
+            on-chain rsETH liquidations across the entire window. The same week,
+            those four protocols processed{" "}
+            <span className="font-medium text-text-primary">
+              {formatNumber(totalEventWindowSystemwide || 0)}
+            </span>{" "}
+            liquidations on other assets. The asset wasn't out of trouble — Aave's
+            price feed simply never reflected the depeg, so liquidator bots had
+            nothing to act on.
+          </div>
+          <div className="text-text-tertiary">
+            For the loss-allocation scenarios on Aave specifically (estimated
+            $123.7M–$230.1M in pending bad debt), see the LlamaRisk /
+            Aave-service-providers{" "}
+            <a
+              href="https://governance.aave.com/t/rseth-incident-report-april-20-2026/24580"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent hover:underline"
+            >
+              rsETH Incident Report (April 20, 2026)
+            </a>
+            .
+          </div>
         </div>
       </div>
 
@@ -365,6 +383,43 @@ export default function RsethIncidentPage() {
               />
             </div>
 
+            {/* Reconciliation with the LlamaRisk report — these numbers are
+                "Aave's view" not "market view" and that is the entire point. */}
+            <div
+              className="tui-card rounded p-3 text-[11px] leading-relaxed"
+              style={{
+                background: "rgba(255, 107, 53, 0.06)",
+                border: "1px solid rgba(255, 107, 53, 0.3)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <span className="font-semibold" style={{ color: "var(--accent-orange)" }}>
+                Why this curve is flat at $0 vs. the $123–230M figures in the
+                LlamaRisk report:{" "}
+              </span>
+              the chart below plots the protocol's <em>own</em> view of every
+              rsETH-collateral user via{" "}
+              <code className="text-accent">getUserAccountData</code>, which uses
+              Aave's price feed. Aave's rsETH oracle continued to quote the
+              pre-exploit exchange rate throughout this entire window, so the
+              protocol's view is "everyone is healthy." The flat $0 line is the
+              evidence of that frozen oracle, and is exactly why bots had nothing
+              to liquidate. LlamaRisk's $123.7M (uniform-slash) and $230.1M
+              (L2-isolated) figures are the bad debt that <em>materializes</em> if
+              and when Kelp updates the rsETH internal exchange rate to reflect
+              the depeg — see{" "}
+              <a
+                href="https://governance.aave.com/t/rseth-incident-report-april-20-2026/24580"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent hover:underline"
+              >
+                governance.aave.com/t/rseth-incident-report-april-20-2026
+              </a>
+              . Our scope is also Aave V3 Ethereum mainnet only;
+              <strong> attacker exposure on Arbitrum, Mantle, Base, Linea, and Ink ($89M of the $221M total) is not in this curve.</strong>
+            </div>
+
             <ChartWrapper title="Collateral, Debt & Bad-Debt Curve" height={340}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart
@@ -477,7 +532,12 @@ export default function RsethIncidentPage() {
               <span style={{ color: "#FF4444" }}>bad debt</span> = max(0, debt − collateral)
               for any user where debt exceeds collateral. Counts the number of
               underwater users on the right axis. The shaded red region is the depeg
-              event window (Apr 18 – 25).
+              event window (Apr 18 – 25). <strong>Important caveat:</strong> the
+              collateral USD value reported here uses Aave's price feed for rsETH,
+              which did not reflect the 15% market depeg — so the curve measures
+              "Aave's view" rather than "market view." Cross-reference the LlamaRisk
+              incident report for the loss-allocation scenarios that would
+              crystallize bad debt once the oracle catches up.
             </div>
           </div>
         )
