@@ -264,12 +264,16 @@ export default function RsethIncidentPage() {
                   allowDecimals={false}
                 />
                 <Tooltip
+                  cursor={{ fill: "rgba(255, 255, 255, 0.04)" }}
                   contentStyle={{
                     background: "var(--tooltip-bg)",
                     border: "1px solid var(--card-border)",
                     borderRadius: 4,
                     fontSize: 11,
+                    color: "var(--text-primary)",
                   }}
+                  itemStyle={{ color: "var(--text-primary)" }}
+                  labelStyle={{ color: "var(--text-secondary)", fontWeight: 600 }}
                   formatter={(v: any, n: any) => {
                     if (n === "events") return [`${v} liquidation${Number(v) === 1 ? "" : "s"}`, "Events"]
                     if (n === "volume") return [formatUSD(Number(v)), "Volume"]
@@ -388,12 +392,16 @@ export default function RsethIncidentPage() {
                     allowDecimals={false}
                   />
                   <Tooltip
+                    cursor={{ stroke: "rgba(255, 255, 255, 0.15)", strokeDasharray: "3 3" }}
                     contentStyle={{
                       background: "var(--tooltip-bg)",
                       border: "1px solid var(--card-border)",
                       borderRadius: 4,
                       fontSize: 11,
+                      color: "var(--text-primary)",
                     }}
+                    itemStyle={{ color: "var(--text-primary)" }}
+                    labelStyle={{ color: "var(--text-secondary)", fontWeight: 600 }}
                     formatter={(v: any, n: any) => {
                       if (n === "underwater")
                         return [`${v} positions`, "Underwater users"]
