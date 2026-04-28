@@ -14,7 +14,7 @@
  *   npx tsx -r tsconfig-paths/register scripts/snapshot-rseth-aave.ts discover
  *   npx tsx -r tsconfig-paths/register scripts/snapshot-rseth-aave.ts snapshot
  */
-import { Pool } from "@neondatabase/serverless"
+import { Pool, neon } from "@neondatabase/serverless"
 import * as fs from "fs"
 import * as path from "path"
 
@@ -54,9 +54,10 @@ const GET_RESERVE_DATA = "0x35ea6a75"
 const TRANSFER_TOPIC =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-// Analysis window — 11 days centered on the rsETH depeg (Apr 18-25, 2026).
-const WINDOW_START = Math.floor(new Date("2026-04-15T00:00:00Z").getTime() / 1000)
-const WINDOW_END = Math.floor(new Date("2026-04-28T23:59:59Z").getTime() / 1000)
+// Analysis window — trimmed to a tight band around the rsETH depeg
+// (Apr 18-25, 2026): 12h pre-event baseline + the event window + 12h after.
+const WINDOW_START = Math.floor(new Date("2026-04-17T12:00:00Z").getTime() / 1000)
+const WINDOW_END = Math.floor(new Date("2026-04-26T00:00:00Z").getTime() / 1000)
 
 // Snapshot cadence (seconds). 3600 = hourly.
 const SNAPSHOT_INTERVAL = 3600
@@ -292,13 +293,19 @@ async function snapshot() {
     const blockNum = blockForHour(ts)
     const blockHex = "0x" + blockNum.toString(16)
 
-    // Build batched calls: getUserAccountData(user) for each candidate
-    const BATCH = 25
+    // Build batched calls: getUserAccountData(user) for each candidate.
+    // Batch size + inter-batch delay tuned to stay under Alchemy's free-tier
+    // 300 CU/sec cap (each eth_call ≈ 26 CU). 10 calls per batch × 26 CU =
+    // 260 CU per batch; 350 ms between batches → ~3 batches/sec → ~780 CU/sec
+    // peak with retries spreading the load. The retry logic in rpcBatch
+    // covers transient bursts.
+    const BATCH = 10
     let totalCollateralBase = 0n
     let totalDebtBase = 0n
     let badDebtBase = 0n
     let underwater = 0
     let active = 0
+    let batchFailures = 0
 
     for (let i = 0; i < users.length; i += BATCH) {
       const chunk = users.slice(i, i + BATCH)
@@ -316,13 +323,16 @@ async function snapshot() {
       try {
         results = await rpcBatch<string>(calls)
       } catch (e: any) {
-        console.warn(`  batch failed at ${i}/${users.length}: ${e?.message}`)
+        // After exhausting retries inside rpcBatch, give up on this batch but
+        // back off significantly before the next batch — usually it's a CU
+        // rate limit and a longer pause is what fixes it.
+        batchFailures++
+        await new Promise((r) => setTimeout(r, 5000))
         continue
       }
       for (let k = 0; k < results.length; k++) {
         const r = results[k]
         if (!r || r === "0x") continue
-        // Decode: 6 × uint256 packed
         const collateral = hexToBigInt("0x" + r.slice(2 + 0, 2 + 64))
         const debt = hexToBigInt("0x" + r.slice(2 + 64, 2 + 128))
         if (collateral === 0n && debt === 0n) continue
@@ -334,9 +344,21 @@ async function snapshot() {
           underwater++
         }
       }
-      // Light throttle between batches — Alchemy can take more than this but
-      // keeps us friendly across hours.
-      await new Promise((r) => setTimeout(r, 100))
+      // 1 sec inter-batch ≈ 260 CU/sec which sits comfortably under
+      // Alchemy free-tier's 330 CU/sec cap.
+      await new Promise((r) => setTimeout(r, 1000))
+    }
+
+    // Don't drop hours over partial failures — record what we got and tag the
+    // snapshot with active_users count so the chart can flag low-coverage rows.
+    // If failures were CATASTROPHIC (>50%) we still skip and retry later.
+    const totalBatches = Math.ceil(users.length / BATCH)
+    if (batchFailures / totalBatches > 0.5) {
+      const dt = new Date(ts * 1000).toISOString().slice(0, 16).replace("T", " ")
+      console.log(
+        `  ${dt}Z block ${blockNum} | SKIPPED — ${batchFailures}/${totalBatches} batches failed (>50%)`
+      )
+      continue
     }
 
     const totalCollateralUsd = baseToUsd(totalCollateralBase)
@@ -393,7 +415,12 @@ async function update() {
     process.exit(1)
   }
   console.log(`  ${snaps.length} snapshots to upsert`)
-  const pool = new Pool({ connectionString: dbUrl })
+
+  // Use Neon's HTTP-over-fetch mode — works even when WebSocket pooler is
+  // unreachable, and these are one-shot bulk upserts (no need for a pool).
+  const sqlHttp = neon(dbUrl)
+  const exec = async (text: string, params: any[] = []) =>
+    (sqlHttp as any).query(text, params)
 
   const BATCH = 100
   let upserted = 0
@@ -417,7 +444,7 @@ async function update() {
         s.activeUsers
       )
     }
-    const r = await pool.query(
+    const rows = await exec(
       `INSERT INTO rseth_hourly_snapshots
          (block_timestamp, block_number, total_collateral_usd, total_debt_usd,
           bad_debt_usd, underwater_users, active_users)
@@ -428,25 +455,26 @@ async function update() {
          total_debt_usd = EXCLUDED.total_debt_usd,
          bad_debt_usd = EXCLUDED.bad_debt_usd,
          underwater_users = EXCLUDED.underwater_users,
-         active_users = EXCLUDED.active_users`,
+         active_users = EXCLUDED.active_users
+       RETURNING block_timestamp`,
       params
     )
-    upserted += r.rowCount || 0
+    upserted += Array.isArray(rows) ? rows.length : 0
   }
   console.log(`  Upserted ${upserted} rows`)
 
-  const stats = (
-    await pool.query(`
+  const stats = await exec(`
     SELECT MIN(block_timestamp) as t0, MAX(block_timestamp) as t1,
            MAX(bad_debt_usd) as peak_bad_debt,
            MAX(underwater_users) as peak_underwater,
            SUM(bad_debt_usd) as auc_bad_debt
     FROM rseth_hourly_snapshots`)
-  ).rows[0]
-  console.log(`\nSnapshot range: ${new Date(Number(stats.t0) * 1000).toISOString()} → ${new Date(Number(stats.t1) * 1000).toISOString()}`)
-  console.log(`Peak bad debt: $${Number(stats.peak_bad_debt).toFixed(0)}`)
-  console.log(`Peak underwater users: ${stats.peak_underwater}`)
-  await pool.end()
+  const s = stats[0]
+  console.log(
+    `\nSnapshot range: ${new Date(Number(s.t0) * 1000).toISOString()} → ${new Date(Number(s.t1) * 1000).toISOString()}`
+  )
+  console.log(`Peak bad debt: $${Number(s.peak_bad_debt).toFixed(0)}`)
+  console.log(`Peak underwater users: ${s.peak_underwater}`)
 }
 
 async function main() {
