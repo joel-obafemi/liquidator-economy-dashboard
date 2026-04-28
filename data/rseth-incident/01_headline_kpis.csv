@@ -1,0 +1,15 @@
+metric,value,context
+event_window_liquidations,0,2026-04-18 → 2026-04-25
+event_window_volume_usd,0.00,Sum of collateral_amount_usd
+event_window_profit_usd,0.00,Sum of gross_profit_usd
+event_window_bad_debt_usd,0.00,0 events with bad debt
+event_window_unique_liquidators,0,Distinct addresses
+event_window_unique_borrowers,0,Distinct addresses
+days_since_last_rseth_liquidation,11,Last: 2026-04-06
+historical_baseline_total_liquidations,35,Since 2024-08-05 · 0.40 events/week avg
+historical_baseline_unique_liquidators,19,All-time distinct rsETH liquidators
+historical_baseline_unique_borrowers,30,All-time distinct borrowers
+historical_baseline_volume_usd,2626531.05,All-time rsETH liquidation collateral seized
+historical_baseline_profit_usd,245743.90,All-time rsETH liquidation gross profit
+historical_baseline_bad_debt_usd,1.21,All-time rsETH bad debt
+system_wide_liquidations_in_event_window,150,aave_v3=133 | morpho_blue=16 | spark=1
