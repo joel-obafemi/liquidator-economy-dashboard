@@ -89,6 +89,7 @@ export default function OverviewPage() {
     value: s.totalVolume,
     protocol: s.protocol,
   }))
+  const pieTotal = pieData.reduce((sum, d) => sum + d.value, 0)
 
   const formatAddr = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`
 
@@ -199,12 +200,12 @@ export default function OverviewPage() {
                   <Pie
                     data={pieData}
                     cx="50%"
-                    cy="45%"
-                    innerRadius={60}
-                    outerRadius={90}
+                    cy="42%"
+                    innerRadius={52}
+                    outerRadius={80}
                     dataKey="value"
                     label={({ name, percent }) =>
-                      `${name} ${(percent * 100).toFixed(0)}%`
+                      percent >= 0.04 ? `${name} ${(percent * 100).toFixed(0)}%` : ""
                     }
                     labelLine={false}
                   >
@@ -219,6 +220,17 @@ export default function OverviewPage() {
                     ))}
                   </Pie>
                   <Tooltip formatter={(v: number) => formatUSD(v)} />
+                  <Legend
+                    verticalAlign="bottom"
+                    height={28}
+                    iconSize={8}
+                    wrapperStyle={{ fontSize: 10 }}
+                    formatter={(value, entry: any) => {
+                      const v = entry?.payload?.value ?? 0
+                      const pct = pieTotal ? (v / pieTotal) * 100 : 0
+                      return `${value} ${pct < 1 ? pct.toFixed(1) : pct.toFixed(0)}%`
+                    }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
