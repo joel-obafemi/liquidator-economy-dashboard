@@ -1,5 +1,6 @@
 "use client"
 
+// All supported protocols — includes Compound V3 and Euler V2 (June 2026)
 const PROTOCOLS = [
   { value: "all", label: "All" },
   { value: "aave_v3", label: "Aave V3" },
