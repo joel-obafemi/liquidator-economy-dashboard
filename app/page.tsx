@@ -18,6 +18,8 @@ const PROTOCOL_NAME_MAP: Record<string, string> = {
   spark: "SparkLend",
   morpho_blue: "Morpho",
   fluid: "Fluid",
+  compound_v3: "Compound",
+  euler_v2: "Euler",
 }
 
 interface OverviewData {
@@ -76,7 +78,7 @@ export default function OverviewPage() {
   const monthlyMap = new Map<string, any>()
   for (const m of data?.monthly || []) {
     if (!monthlyMap.has(m.month)) {
-      monthlyMap.set(m.month, { month: m.month, aave_v3: 0, spark: 0, morpho_blue: 0, fluid: 0 })
+      monthlyMap.set(m.month, { month: m.month, aave_v3: 0, spark: 0, morpho_blue: 0, fluid: 0, compound_v3: 0, euler_v2: 0 })
     }
     const entry = monthlyMap.get(m.month)!
     entry[m.protocol] = m.volume
@@ -183,6 +185,8 @@ export default function OverviewPage() {
                   <Bar dataKey="spark" name="spark" stackId="a" fill={CHART_COLORS.spark} />
                   <Bar dataKey="morpho_blue" name="morpho_blue" stackId="a" fill={CHART_COLORS.morpho_blue} />
                   <Bar dataKey="fluid" name="fluid" stackId="a" fill={CHART_COLORS.fluid} />
+                  <Bar dataKey="compound_v3" name="compound_v3" stackId="a" fill={CHART_COLORS.compound_v3} />
+                  <Bar dataKey="euler_v2" name="euler_v2" stackId="a" fill={CHART_COLORS.euler_v2} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

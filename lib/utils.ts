@@ -49,16 +49,20 @@ export function protocolLabel(protocol: string): string {
   if (protocol === "spark") return "SparkLend"
   if (protocol === "morpho_blue") return "Morpho"
   if (protocol === "fluid") return "Fluid"
+  if (protocol === "compound_v3") return "Compound"
+  if (protocol === "euler_v2") return "Euler"
   return protocol
 }
 
 // Datum Labs brand palette — matches @datumlabs/dashboard-kit globals.css
 // Each protocol gets one slot from the 8-color chart palette.
-export const CHART_COLORS = {
+export const CHART_COLORS: Record<string, string> = {
   aave_v3: "#B44AFF",      // chart-4 — purple
   spark: "#F59E0B",        // chart-3 — amber
   morpho_blue: "#5B7FFF",  // chart-1 — blue
   fluid: "#00D4FF",        // chart-5 — cyan
+  compound_v3: "#FF6B35",  // chart-6 — orange
+  euler_v2: "#EC4899",     // chart-7 — pink
   accent: "#FF6B35",       // Datum orange (brand accent)
   positive: "#10B981",     // success green
   negative: "#FF4444",     // danger red

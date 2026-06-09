@@ -6,6 +6,8 @@ const PROTOCOLS = [
   { value: "spark", label: "SparkLend" },
   { value: "morpho_blue", label: "Morpho" },
   { value: "fluid", label: "Fluid" },
+  { value: "compound_v3", label: "Compound" },
+  { value: "euler_v2", label: "Euler" },
 ]
 
 const PERIODS = [
