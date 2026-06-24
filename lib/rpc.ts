@@ -2,10 +2,10 @@ import { createPublicClient, http, fallback, type PublicClient } from "viem"
 import { mainnet } from "viem/chains"
 
 const ETH_RPCS = [
+  "https://gateway.tenderly.co/public/mainnet",
   "https://eth.llamarpc.com",
   "https://ethereum-rpc.publicnode.com",
   "https://rpc.ankr.com/eth",
-  "https://1rpc.io/eth",
 ]
 
 export const ethClient: PublicClient = createPublicClient({
